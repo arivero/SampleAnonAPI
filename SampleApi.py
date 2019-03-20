@@ -35,6 +35,7 @@ class PeeweeConnectionMW(object):
 class Sheet(BaseModel):
     name = CharField(unique=True)
     fields = ArrayField(CharField) # convert_values=True ??
+    idsKeys = BinaryJSONField()
     blurDict = BinaryJSONField()  
 
 class Lines(BaseModel):
@@ -181,21 +182,30 @@ class Table:
         if 'salt' in req.params:
             pass
         blur=dict()
+        idsKeyDict=dict()
         for x in form['geo'].value.split(','):
             blur[x]='geo'
         for x in form['tiempo'].value.split(','):
             blur[x]='tiempo'
         for x in form['ids'].value.split(','):
-            blur[x]=123456
+            idsKeyDict[x]=123456
         numlinea=form['linea'].value
          
-        sheetId=Sheet.insert(name=tabla,fields=dict(),blurDict=blur).on_conflict(
+        Sheet.insert(name=tabla,fields=dict(),idsKeys=idsKeyDict,blurDict=blur).on_conflict(
             conflict_target=[Sheet.name],
-            preserve=[Sheet.fields],
-            update={Sheet.blurDict: Sheet.blurDict.concat(blur)},  
+            preserve=[],#[Sheet.fields,Sheet.idsKeys],
+            update={Sheet.blurDict: Sheet.blurDict.concat(blur),},  
             ).execute()
 
-        print(sheetId)
+        #oldKeys=Sheet.get(Sheet.name==tabla).idsKeys
+        #idsKeyDict.update(oldKeys)
+        #Sheet.get(Sheet.name==tabla).update(idsKeys=idsKeyDict).execute()
+
+        t=Sheet.get(Sheet.name==tabla)
+        idsKeyDict.update(t.idsKeys)
+        t.idsKeys=idsKeyDict
+        t.save()
+
 
         if form['fileName'].filename:
             print(form['fileName'].type)
