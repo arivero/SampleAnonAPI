@@ -5,6 +5,8 @@ from falcon_swagger_ui import register_swaggerui_app #ojo, necesita version reci
 from falcon_apispec import FalconPlugin
 from marshmallow import Schema, fields  #OJO, Marshmallow v3
 import json
+import csv
+import io
 
 #Si queremos un validador de la query string quizas se podria usar webargs
 #from webargs import fields  #https://webargs.readthedocs.io/en/latest/framework_support.html#falcon
@@ -208,14 +210,28 @@ class Table:
 
 
         if form['fileName'].filename:
-            print(form['fileName'].type)
-            for line in form['fileName'].file:
+            print(form['fileName'].type) #text/csv
+            data=[]
+            for line in csv.DictReader(io.TextIOWrapper(form['fileName'].file), delimiter=';',
+                    quoting=csv.QUOTE_MINIMAL, quotechar='"'):
                 #print (key,"file")
                 linecount = linecount + 1
-                if linecount==1: print(line)
-                #print(line)
-            print (linecount, " lineas")
+                if linecount==1: 
+                    t.fields=line.keys()
+                    t.save()
+                    print(line.keys())
+                bulkTupleElem=(t,
+                    tabla+str(line.get(numlinea,linecount)),
+                    line)
+                print(bulkTupleElem)
+                data.append(bulkTupleElem)
+            print (linecount, " lineas ",len(data))
+            Lines.insert_many(data,fields=[Lines.name,Lines.lineId,Lines.line]).on_conflict(
+                conflict_target=Lines.lineId,
+                preserve=[Lines.name,Lines.line]).execute()
+        UploadLog(name=t,nlines=linecount,options=dict((k,form[k].value) for k in form.keys() if k!='fileName')).save()
         resp.body=json.dumps({"numlines":linecount})
+
 
     def on_delete(self,req,resp,tabla):
         """
