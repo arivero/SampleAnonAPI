@@ -24,38 +24,43 @@ class BaseModel(Model):
 
 class PeeweeConnectionMW(object):
     def process_request(self, req, resp):
-        db.connect()  #o    get_conn()
+        if db.is_closed():
+            db.connect()  #o    get_conn()
 
     def process_response(self, req, resp, resource):
         if not db.is_closed():
             db.close()
 
 
-class Table(BaseModel):
-	name = CharField(unique=True)
-	fields = ArrayField(CharField) # convert_values=True ??
-	blurDict = BinaryJSONField()  
+class Sheet(BaseModel):
+    name = CharField(unique=True)
+    fields = ArrayField(CharField) # convert_values=True ??
+    blurDict = BinaryJSONField()  
 
 class Lines(BaseModel):
-	name = ForeignKeyField(Table,backref='lines')  #index=True?
-	lineId=CharField()
-	line=BinaryJSONField() 
+    name = ForeignKeyField(Sheet,backref='lines')  #index=True?
+    lineId=CharField(unique=True) #tablename+linenumber
+    line=BinaryJSONField() 
 
 class UploadLog(BaseModel):
-	fecha=DateTimeField(constraints=[SQL("DEFAULT (now())")]) #
-	name= ForeignKeyField(Table,backref='history')
-	nlines = IntegerField() ## or BigInteger?
-	options=BinaryJSONField()
+    fecha=DateTimeField(constraints=[SQL("DEFAULT (now())")]) #
+    name= ForeignKeyField(Sheet,backref='history')
+    nlines = IntegerField() ## or BigInteger?
+    options=BinaryJSONField()
 
 #
 # Solo durante desarrollo: borramos todas las tablas y las reinicializamos
 
 db.connect()
-db.drop_tables([Lines, UploadLog, Table])
-db.create_tables([Lines, UploadLog, Table],safe=False)
+db.drop_tables([Lines, UploadLog, Sheet])
+db.create_tables([Lines, UploadLog, Sheet],safe=False)
 
+#
+# FALCON
+#
 
 app=falcon.API(middleware=[PeeweeConnectionMW()])
+    #consider also falcon_cors.CORS with allow_credentials_all_origins etc
 spec = APISpec(
     title='API Anonimizada',
     version='0.5.0',
@@ -173,17 +178,33 @@ class Table:
         env.setdefault('QUERY_STRING', '')
         form = cgi.FieldStorage(fp=req.stream,environ=env) #ojo a https://falcon.readthedocs.io/en/stable/user/faq.html?highlight=multipart
         linecount=0
-        for key in form:
-            if form[key].filename:
-               print(key," es fichero", form[key].filename, form[key].type)
-               for line in form[key].file:
-                   #print (key,"file")
-                   linecount = linecount + 1
-                   if linecount==1: print(line)
-               print(line)
-               print (linecount, " lineas")
-            else:
-                print (key,form[key])
+        if 'salt' in req.params:
+            pass
+        blur=dict()
+        for x in form['geo'].value.split(','):
+            blur[x]='geo'
+        for x in form['tiempo'].value.split(','):
+            blur[x]='tiempo'
+        for x in form['ids'].value.split(','):
+            blur[x]=123456
+        numlinea=form['linea'].value
+         
+        sheetId=Sheet.insert(name=tabla,fields=dict(),blurDict=blur).on_conflict(
+            conflict_target=[Sheet.name],
+            preserve=[Sheet.fields],
+            update={Sheet.blurDict: Sheet.blurDict.concat(blur)},  
+            ).execute()
+
+        print(sheetId)
+
+        if form['fileName'].filename:
+            print(form['fileName'].type)
+            for line in form['fileName'].file:
+                #print (key,"file")
+                linecount = linecount + 1
+                if linecount==1: print(line)
+                #print(line)
+            print (linecount, " lineas")
         resp.body=json.dumps({"numlines":linecount})
 
     def on_delete(self,req,resp,tabla):
@@ -303,7 +324,7 @@ spec.path(resource=manage_resource)
 
 
 from pprint import pprint
-pprint(spec.to_dict())
+#pprint(spec.to_dict())
 
 class StaticResource(object):
     def on_get(self, req, resp ):
