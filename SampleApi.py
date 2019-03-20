@@ -287,7 +287,17 @@ class Sample:
                    schema:
                       type: object
         """
-        pass
+        #pass
+        print(tabla)
+        sampleFactor=req.params.get('sample','1.0')
+        #base=Lines.select(Lines.line).where(Lines.name.name==tabla)
+        baseTable=Sheet.get(Sheet.name==tabla)
+        base=baseTable.lines
+        base=base.where(fn.Random()<sampleFactor)
+        response=[row.line for row in base]
+        for line in response:
+            print(line)
+        resp.body=json.dumps({"data":response,"numlines":len(response)})
 sample_resource=Sample()
 app.add_route("/sample/{tabla}/",sample_resource)
 spec.path(resource=sample_resource)
