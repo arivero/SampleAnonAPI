@@ -24,21 +24,26 @@ class BaseModel(Model):
 
 class PeeweeConnectionMW(object):
     def process_request(self, req, resp):
-        database.connect()  #o    get_conn()
+        db.connect()  #o    get_conn()
 
     def process_response(self, req, resp, resource):
-        if not database.is_closed():
-            database.close()
+        if not db.is_closed():
+            db.close()
 
+
+class Table(BaseModel):
+	name = CharField(unique=True)
+	fields = ArrayField(CharField) # convert_values=True ??
+	blurDict = BinaryJSONField()  
 
 class Lines(BaseModel):
-	name = CharField(index=True)
+	name = ForeignKeyField(Table,backref='lines')  #index=True?
 	lineId=CharField()
 	line=BinaryJSONField() 
 
 class UploadLog(BaseModel):
 	fecha=DateTimeField(constraints=[SQL("DEFAULT (now())")]) #
-	name= CharField()
+	name= ForeignKeyField(Table,backref='history')
 	nlines = IntegerField() ## or BigInteger?
 	options=BinaryJSONField()
 
@@ -46,8 +51,8 @@ class UploadLog(BaseModel):
 # Solo durante desarrollo: borramos todas las tablas y las reinicializamos
 
 db.connect()
-db.drop_tables([Lines, UploadLog])
-db.create_tables([Lines, UploadLog],safe=False)
+db.drop_tables([Lines, UploadLog, Table])
+db.create_tables([Lines, UploadLog, Table],safe=False)
 
 
 app=falcon.API(middleware=[PeeweeConnectionMW()])
