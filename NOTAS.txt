@@ -1,0 +1,9 @@
+Falcon vs Flask vs Bottle?
+que pasa con asynx?
+                 c
+Deberiamos tener mas estructura? Como minimo .middleware y .resources?
+ORMs are basically not intended for high-performance bulk inserts ... asi que
+esta la duda de si usar psycopg directametne o sqlalchemy con core o peewee
+Una alternativa a gunicorn seria quizas el pywsgi de gevent, vease https://stackoverflow.com/questions/37119047/how-to-use-gevents-with-falcon
+Una alternativa a peewee podria ser usar directamente dataset, https://dataset.readthedocs.io/en/latest/index.html 
+aunque esta construido sobre sqlAlchemy. Por otro lado, curiosamente peewee soporta cierta integracion con dataset (?)
