@@ -118,11 +118,14 @@ spec.tag({"name":"stats","description":"condensa o agrega estadisticas"})
 
 @falcon.before(validateAuth)
 class Table:
-    def on_get(self,req,resp,tabla):
+    def on_get(self,req,resp,tabla,usuario):
         """
         ---
         tags:
            - admin
+           - csv
+        security:
+            - claveSimple: []
         summary: Extrae una tabla, neceista privilegios administracion
         parameters:
             - in: path
@@ -130,8 +133,29 @@ class Table:
               schema:
                   type: string
               description: nombre de la tabla 
+        responses:
+           '200':
+             content:
+                text/csv: 
+                   schema:
+                      type: string
+                application/json: 
+                   schema:
+                      type: object
         """
-        pass
+        if Sheet.select().where(Sheet.name==tabla).exists():
+            t=Sheet.get(Sheet.name==tabla)
+            fields=[x for x in t.fields if x not in t.idsKeys.keys()]
+            respuesta=io.StringIO()  #or with as 
+            wr=csv.writer(respuesta,delimiter=';')#,quoting=csv.QUOTE_MINIMAL)
+            wr.writerow(fields)
+            resp.content_type='text/csv'
+            for elem in t.lines:
+                wr.writerow([elem.line[x] for x in fields])
+            resp.body=respuesta.getvalue()
+        else:
+            resp.body=json.dumps({"NoExiste":tabla})
+
     #def on_put(self,req,resp,tabla):
     #    """
     #    ---
@@ -303,7 +327,7 @@ class Table:
             t.save()
             UploadLog(hoja=t,nlines=-1,connectionInfo={'user':usuario},options={"comando":"delete"}).save()
             resp.body=json.dumps({"savedName":t.name})
-        except: # SheetDoesNotExist:
+        except DoesNotExist:
             resp.body=json.dumps({"NoExiste":tabla})
 table_resource=Table()
 app.add_route("/tabla/{tabla}",table_resource)
@@ -419,6 +443,8 @@ class Manage:
               name: comando
               schema:
                  type: string
+                 enum: [list,log]
+                 example: list
         description: comandos de informacion (list,log,..)
         responses:
            '200':
