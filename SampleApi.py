@@ -132,24 +132,23 @@ class Table:
               description: nombre de la tabla 
         """
         pass
-    def on_put(self,req,resp,tabla):
-        """
-        ---
-        tags:
-                   - admin
-                   - csv
-        summary: sustituye una tabla
-        """
-        pass
-    def on_patch(self,req,resp,tabla):
-        """
-        ---
-        summary: actualiza lineas de una tabla
-        tags:
-            - admin
-        """
+    #def on_put(self,req,resp,tabla):
+    #    """
+    #    ---
+    #    tags:
+    #               - admin
+    #               - csv
+    #    summary: sustituye una tabla
+    #    """
+    #    pass
+    #def on_patch(self,req,resp,tabla):
+    #    """
+    #    ---
+    #    summary: actualiza lineas de una tabla
+    #    tags:
+    #        - admin
+    #    """
 
-    #def on_post()
     def on_post(self,req,resp,tabla,usuario):
         """
         ---
@@ -181,6 +180,9 @@ class Table:
                        ids:
                           type: string
                           description: columnas que deben ser pseudoanonimizadas
+                       ignore:
+                          type: string
+                          description: columnas que deben ser ignoradas        
                        
         parameters:
             - in: path
@@ -261,14 +263,48 @@ class Table:
         resp.body=json.dumps({"numlines":linecount})
 
 
-    def on_delete(self,req,resp,tabla):
+    def on_delete(self,req,resp,tabla,usuario):
         """
         ---
         summary: borra una tabla
         tags:
           - admin
+        security:
+            - claveSimple: []
+        parameters:
+            - in: path
+              name: tabla
+              schema: 
+                  type: string
+              description: la tabla que se quiere actualizar
+            - in: query
+              name: full
+              schema:
+                  type: string
+              description: si true, borra ademas la info y el log
+        responses:
+           '200':
+             content:
+                application/json: 
+                   schema:
+                      type: object
+
         """
-        pass
+        print (tabla)
+        
+        try:
+            t=Sheet.get(Sheet.name==tabla)
+            #t.lines.delete()
+            Lines.delete().where(Lines.hoja==t)
+            #t.idsKeys={}
+            #t.blurDict={}
+            #t.fields=[]
+            t.name=t.name+"_DELETED_"+str(t.id)
+            t.save()
+            UploadLog(hoja=t,nlines=-1,connectionInfo={'user':usuario},options={"comando":"delete"}).save()
+            resp.body=json.dumps({"savedName":t.name})
+        except: # SheetDoesNotExist:
+            resp.body=json.dumps({"NoExiste":tabla})
 table_resource=Table()
 app.add_route("/tabla/{tabla}",table_resource)
 spec.path(resource=table_resource)
@@ -378,10 +414,31 @@ class Manage:
         tags:
            - open
            - stats
-        description: comandos de gestion de las tablas
+        parameters:
+            - in: path
+              name: comando
+              schema:
+                 type: string
+        description: comandos de informacion (list,log,..)
+        responses:
+           '200':
+                description: resultado de la operacion
         """
-        print (comando)
-        pass
+        if comando=="list":
+            respuesta=[]
+            for row in Sheet:
+                if not "DELETED" in row.name:
+                    respuesta.append({"tabla":row.name,"campos:":row.fields,
+                        "redondeos":row.blurDict, "pseudonimizados":[x for x in row.idsKeys]})
+            resp.body=json.dumps(respuesta)
+        elif comando=="log":
+            respuesta=[]
+            for row in UploadLog:
+                if not "DELETED" in row.hoja.name:
+                    respuesta.append([row.fecha.isoformat(),row.hoja.name,row.connectionInfo,row.nlines,row.options])
+            resp.body=json.dumps(respuesta)
+        else:
+            print (comando)
 manage_resource=Manage()
 app.add_route("/api/{comando}/",manage_resource)
 spec.path(resource=manage_resource)
