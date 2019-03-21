@@ -4,9 +4,11 @@ import falcon
 from falcon_swagger_ui import register_swaggerui_app #ojo, necesita version reciente del javascript
 from falcon_apispec import FalconPlugin
 from marshmallow import Schema, fields  #OJO, Marshmallow v3
+from falcon_cors import CORS
 import json
 import csv
 import io
+from hashlib import sha512
 
 #Si queremos un validador de la query string quizas se podria usar webargs
 #from webargs import fields  #https://webargs.readthedocs.io/en/latest/framework_support.html#falcon
@@ -65,7 +67,27 @@ if False:
 # FALCON
 #
 
-app=falcon.API(middleware=[PeeweeConnectionMW()])
+#auth stuff
+from base64 import b64decode
+from hashlib import sha512
+sha512hexdigestedAdmin='76ccf93088e27687b85d1ae484610a60614684d6bdcf4999832e07414c01f795f7f2c64538b7289ede467a23a2663a1481f8dec35b4e6280f3d9a707e6cf19f4'
+def validateAuth(req, resp, resource, params):
+    token = req.get_header('Authorization')
+    if token is None:
+            description = ('Please provide an auth token '
+                           'as part of the request.')
+            raise falcon.HTTPUnauthorized('Auth token required', description)
+    user,password=b64decode(token.split()[1]).split(b':')
+    if sha512(password).hexdigest()!=sha512hexdigestedAdmin:
+        description = ('wrong password')
+        raise falcon.HTTPUnauthorized('Authentication required',description)
+    params['usuario']=str(user,'utf-8')
+    #print(str(user,'utf-8'),user)
+
+
+cors = CORS(allow_all_origins=True)
+
+app=falcon.API(middleware=[PeeweeConnectionMW(),cors.middleware])
     #consider also falcon_cors.CORS with allow_credentials_all_origins etc
 spec = APISpec(
     title='API Anonimizada',
@@ -77,6 +99,7 @@ spec = APISpec(
         MarshmallowPlugin(),
     ],
 )
+spec.components.security_scheme("claveSimple",{"type": "http", "scheme": "basic"})
 spec.tag({"name":"admin","description":"necesitan privilegios"})
 #spec.tag({"name":"default","description":"default category"})
 spec.tag({"name":"csv","description":"fichero en CSV"})
@@ -93,7 +116,7 @@ spec.tag({"name":"stats","description":"condensa o agrega estadisticas"})
 #    category = fields.Nested(CategorySchema, many=True)
 #    name = fields.Str()
 
-
+@falcon.before(validateAuth)
 class Table:
     def on_get(self,req,resp,tabla):
         """
@@ -127,13 +150,15 @@ class Table:
         """
 
     #def on_post()
-    def on_post(self,req,resp,tabla):
+    def on_post(self,req,resp,tabla,usuario):
         """
         ---
         summary: Crea una tabla, especificando tipo de columnas
         tags:
             - admin
             - csv
+        security:
+            - claveSimple: []
         requestBody:
            content:
               multipart/form-data:
@@ -177,7 +202,7 @@ class Table:
                    schema:
                       type: object
         """
-        print(req.query_string, req.path)
+        print(req.query_string, req.path, req.auth)
         print(req.content_type)
         import cgi
         env = req.env
@@ -232,7 +257,7 @@ class Table:
             Lines.insert_many(data,fields=[Lines.hoja,Lines.lineId,Lines.line]).on_conflict(
                 conflict_target=Lines.lineId,
                 preserve=[Lines.hoja,Lines.line]).execute()
-        UploadLog(hoja=t,nlines=linecount,connectionInfo={},options=dict((k,form[k].value) for k in form.keys() if k!='fileName')).save()
+        UploadLog(hoja=t,nlines=linecount,connectionInfo={'user':usuario},options=dict((k,form[k].value) for k in form.keys() if k!='fileName')).save()
         resp.body=json.dumps({"numlines":linecount})
 
 
