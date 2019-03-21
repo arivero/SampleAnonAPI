@@ -41,22 +41,25 @@ class Sheet(BaseModel):
     blurDict = BinaryJSONField()  
 
 class Lines(BaseModel):
-    name = ForeignKeyField(Sheet,backref='lines')  #index=True?
-    lineId=CharField(unique=True) #tablename+linenumber
+    #este modelo puede ser lento al realizar sustituciones de lineas
+    hoja = ForeignKeyField(Sheet,backref='lines') #index?
+    fechaBase=TimestampField()
+    lineId=CharField(unique=True) #tablename+linenumber. 
     line=BinaryJSONField() 
 
 class UploadLog(BaseModel):
     fecha=DateTimeField(constraints=[SQL("DEFAULT (now())")]) #
-    name= ForeignKeyField(Sheet,backref='history')
+    hoja= ForeignKeyField(Sheet,backref='history')
     nlines = IntegerField() ## or BigInteger?
     options=BinaryJSONField()
+    connectionInfo=BinaryJSONField()  
 
 #
 # Solo durante desarrollo: borramos todas las tablas y las reinicializamos
-
-db.connect()
-db.drop_tables([Lines, UploadLog, Sheet])
-db.create_tables([Lines, UploadLog, Sheet],safe=False)
+if False:
+    db.connect()
+    db.drop_tables([Lines, UploadLog, Sheet])
+    db.create_tables([Lines, UploadLog, Sheet],safe=False)
 
 #
 # FALCON
@@ -226,10 +229,10 @@ class Table:
                 print(bulkTupleElem)
                 data.append(bulkTupleElem)
             print (linecount, " lineas ",len(data))
-            Lines.insert_many(data,fields=[Lines.name,Lines.lineId,Lines.line]).on_conflict(
+            Lines.insert_many(data,fields=[Lines.hoja,Lines.lineId,Lines.line]).on_conflict(
                 conflict_target=Lines.lineId,
-                preserve=[Lines.name,Lines.line]).execute()
-        UploadLog(name=t,nlines=linecount,options=dict((k,form[k].value) for k in form.keys() if k!='fileName')).save()
+                preserve=[Lines.hoja,Lines.line]).execute()
+        UploadLog(hoja=t,nlines=linecount,connectionInfo={},options=dict((k,form[k].value) for k in form.keys() if k!='fileName')).save()
         resp.body=json.dumps({"numlines":linecount})
 
 
@@ -290,7 +293,7 @@ class Sample:
         #pass
         print(tabla)
         sampleFactor=req.params.get('sample','1.0')
-        #base=Lines.select(Lines.line).where(Lines.name.name==tabla)
+        #base=Lines.select(Lines.line).where(Lines.hoja.name==tabla)
         baseTable=Sheet.get(Sheet.name==tabla)
         base=baseTable.lines
         base=base.where(fn.Random()<sampleFactor)
