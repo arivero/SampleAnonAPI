@@ -10,6 +10,7 @@ import csv
 import io
 from hashlib import sha512
 import crypt
+import dateparser
 
 #Si queremos un validador de la query string quizas se podria usar webargs
 #from webargs import fields  #https://webargs.readthedocs.io/en/latest/framework_support.html#falcon
@@ -286,6 +287,13 @@ class Table:
         t.idsKeys=idsKeyDict
         t.save()
 
+        linetime="1970-01-01 00:00:00.000"
+
+        if len(form['tiempo'].value)>0:
+            timefield=form['tiempo'].value.split(',')[0]
+        else:
+            timefield=None
+
 
         if form['fileName'].filename:
             print(form['fileName'].type) #text/csv
@@ -298,6 +306,8 @@ class Table:
                     t.fields=line.keys()
                     t.save()
                     print(line.keys())
+                if timefield:
+                    linetime=line.get(timefield,linetime)
                 for k in idsKeyDict:
                     if k in line:
                         if idsKeyDict[k]=="":
@@ -309,14 +319,16 @@ class Table:
                             #hashlib...
 
                 bulkTupleElem=(t,
+                    dateparser.parse(linetime),
                     tabla+str(line.get(numlinea,linecount)),
                     line)
-                print(bulkTupleElem)
+                if linecount < 5: 
+                    print(bulkTupleElem)
                 data.append(bulkTupleElem)
             print (linecount, " lineas ",len(data))
-            Lines.insert_many(data,fields=[Lines.hoja,Lines.lineId,Lines.line]).on_conflict(
+            Lines.insert_many(data,fields=[Lines.hoja,Lines.fechaBase,Lines.lineId,Lines.line]).on_conflict(
                 conflict_target=Lines.lineId,
-                preserve=[Lines.hoja,Lines.line]).execute()
+                preserve=[Lines.hoja,Lines.fechaBase,Lines.line]).execute()
         UploadLog(hoja=t,nlines=linecount,connectionInfo={'user':usuario},options=dict((k,form[k].value) for k in form.keys() if k!='fileName')).save()
         resp.body=json.dumps({"numlines":linecount})
 
