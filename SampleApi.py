@@ -39,6 +39,7 @@ class PeeweeConnectionMW(object):
 
 class Sheet(BaseModel):
     name = CharField(unique=True)
+    estado = CharField() #draft, aprobada, borrada, etc
     fields = ArrayField(CharField) # convert_values=True ??
     idsKeys = BinaryJSONField()
     blurDict = BinaryJSONField()  
@@ -162,19 +163,39 @@ class Table:
     #    """
     #    ---
     #    tags:
-    #               - admin
+    #              - admin
     #               - csv
-    #    summary: sustituye una tabla
+    #    security:
+    #        - claveSimple: []
+    #    summary: sustituye con una tabla que sea similar a la producida por GET!!
     #    """
     #    pass
-    #def on_patch(self,req,resp,tabla):
-    #    """
-    #    ---
-    #    summary: actualiza lineas de una tabla
-    #    tags:
-    #        - admin
-    #    """
-
+    def on_patch(self,req,resp,tabla,usuario):
+        """
+        ---
+        summary: cambia el estado de una tabla (la activa)
+        tags:
+            - admin
+        security:
+            - claveSimple: []
+        parameters:
+            - in: path
+              name: tabla
+              schema:
+                  type: string
+              description: nombre de la tabla 
+        responses:
+           '200':
+             description: resultado de la operacion
+        """
+        try:
+            t=Sheet.get(Sheet.name==tabla) 
+            t.estado="activa"
+            t.save()
+            UploadLog(hoja=t,nlines=-1,connectionInfo={'user':usuario},options={"comando":"activar tabla"}).save()
+            resp.body=json.dumps({"Activar":t.name})
+        except DoesNotExist:
+            resp.body=json.dumps({"NoExiste":tabla})
     def on_post(self,req,resp,tabla,usuario):
         """
         ---
@@ -250,7 +271,7 @@ class Table:
             idsKeyDict[x]= ""
         numlinea=form['linea'].value
          
-        Sheet.insert(name=tabla,fields=dict(),idsKeys=idsKeyDict,blurDict=blur).on_conflict(
+        Sheet.insert(name=tabla,estado="borrador",fields=dict(),idsKeys=idsKeyDict,blurDict=blur).on_conflict(
             conflict_target=[Sheet.name],
             preserve=[],#[Sheet.fields,Sheet.idsKeys],
             update={Sheet.blurDict: Sheet.blurDict.concat(blur),},  
@@ -337,6 +358,7 @@ class Table:
             #t.blurDict={}
             #t.fields=[]
             t.name=t.name+"_DELETED_"+str(t.id)
+            t.estado="borrada"
             t.save()
             UploadLog(hoja=t,nlines=-1,connectionInfo={'user':usuario},options={"comando":"delete"}).save()
             resp.body=json.dumps({"savedName":t.name})
@@ -393,12 +415,13 @@ class Sample:
         sampleFactor=req.params.get('sample','1.0')
         #base=Lines.select(Lines.line).where(Lines.hoja.name==tabla)
         baseTable=Sheet.get(Sheet.name==tabla)
-        base=baseTable.lines
-        base=base.where(fn.Random()<sampleFactor)
-        response=[row.line for row in base]
-        for line in response:
-            print(line)
-        resp.body=json.dumps({"data":response,"numlines":len(response)})
+        if baseTable.estado=="activa":
+            base=baseTable.lines
+            base=base.where(fn.Random()<sampleFactor)
+            response=[row.line for row in base] 
+            resp.body=json.dumps({"data":response,"numlines":len(response)})
+        else:
+            resp.body=json.dumps({"warning":"la tabla existe pero no esta activa"})
 sample_resource=Sample()
 app.add_route("/sample/{tabla}/",sample_resource)
 spec.path(resource=sample_resource)
