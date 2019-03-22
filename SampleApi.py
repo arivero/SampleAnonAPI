@@ -9,6 +9,7 @@ import json
 import csv
 import io
 from hashlib import sha512
+import crypt
 
 #Si queremos un validador de la query string quizas se podria usar webargs
 #from webargs import fields  #https://webargs.readthedocs.io/en/latest/framework_support.html#falcon
@@ -145,13 +146,14 @@ class Table:
         """
         if Sheet.select().where(Sheet.name==tabla).exists():
             t=Sheet.get(Sheet.name==tabla)
-            fields=[x for x in t.fields if x not in t.idsKeys.keys()]
+            ignored=[k for k in  t.idsKeys if t.idsKeys[k]==""]
+            fields=[x for x in t.fields if x not in ignored]
             respuesta=io.StringIO()  #or with as 
             wr=csv.writer(respuesta,delimiter=';')#,quoting=csv.QUOTE_MINIMAL)
             wr.writerow(fields)
             resp.content_type='text/csv'
             for elem in t.lines:
-                wr.writerow([elem.line[x] for x in fields])
+                wr.writerow([elem.line.get(x,"NULL") for x in fields])
             resp.body=respuesta.getvalue()
         else:
             resp.body=json.dumps({"NoExiste":tabla})
@@ -235,8 +237,7 @@ class Table:
         env.setdefault('QUERY_STRING', '')
         form = cgi.FieldStorage(fp=req.stream,environ=env) #ojo a https://falcon.readthedocs.io/en/stable/user/faq.html?highlight=multipart
         linecount=0
-        if 'salt' in req.params:
-            pass
+        salt=req.params.get("salt","") #una opcion es ademas concatenar el usuario que sube la tabla
         blur=dict()
         idsKeyDict=dict()
         for x in form['geo'].value.split(','):
@@ -244,7 +245,9 @@ class Table:
         for x in form['tiempo'].value.split(','):
             blur[x]='tiempo'
         for x in form['ids'].value.split(','):
-            idsKeyDict[x]=123456
+            idsKeyDict[x]=crypt.mksalt(crypt.METHOD_MD5) #unix only? #use secrets.randbits
+        for x in form['ignore'].value.split(','):
+            idsKeyDict[x]= ""
         numlinea=form['linea'].value
          
         Sheet.insert(name=tabla,fields=dict(),idsKeys=idsKeyDict,blurDict=blur).on_conflict(
@@ -274,6 +277,16 @@ class Table:
                     t.fields=line.keys()
                     t.save()
                     print(line.keys())
+                for k in idsKeyDict:
+                    if k in line:
+                        if idsKeyDict[k]=="":
+                            del line[k]
+                        else:
+                            line[k]=crypt.crypt(line[k]+salt,idsKeyDict[k])
+                            #alternativas:
+                            #sha512_crypt.encrypt(line[k]+salt salt=ids[k][1:], rounds=5000)
+                            #hashlib...
+
                 bulkTupleElem=(t,
                     tabla+str(line.get(numlinea,linecount)),
                     line)
