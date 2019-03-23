@@ -34,30 +34,32 @@ class PeeweeConnectionMW(object):
             db.close()
 
 
-class Sheet(BaseModel):
+class Sheet(BaseModel):  
     name = CharField(unique=True)
     estado = CharField() #draft, aprobada, borrada, etc
-    fields = ArrayField(CharField) # convert_values=True ??
-    idsKeys = BinaryJSONField()
-    blurDict = BinaryJSONField()  
+    fields = ArrayField(CharField,index=False) # convert_values=True ??
+    idsKeys = BinaryJSONField(index=False)
+    blurDict = BinaryJSONField(index=False)
+    info = JSONField(null=True)
 
 class Lines(BaseModel):
     #este modelo puede ser lento al realizar sustituciones de lineas
-    hoja = ForeignKeyField(Sheet,backref='lines') #index?
-    fechaBase=TimestampField()
-    lineId=CharField(unique=True) #tablename+linenumber. 
-    line=BinaryJSONField() 
+    hoja = ForeignKeyField(Sheet,backref='lines') 
+    fechaBase=TimestampField(index=True)
+    lineId=CharField(primary_key=True) #tablename+linenumber. 
+    line=BinaryJSONField(index=False) #disable GIN index (es un 30% de carga, podria dejarse opcional)
 
 class UploadLog(BaseModel):
     fecha=DateTimeField(constraints=[SQL("DEFAULT (now())")]) #
     hoja= ForeignKeyField(Sheet,backref='history')
-    nlines = IntegerField() ## or BigInteger?
-    options=BinaryJSONField()
+    nlines = IntegerField() ## no hace falta BigInteger, no hay tantas lineas
+    options=BinaryJSONField(index=False)
     connectionInfo=BinaryJSONField()  
 
 #
 # Solo durante desarrollo: borramos todas las tablas y las reinicializamos
 if False:
+#if True:
     db.connect()
     db.drop_tables([Lines, UploadLog, Sheet])
     db.create_tables([Lines, UploadLog, Sheet],safe=False)
@@ -103,6 +105,29 @@ spec.tag({"name":"csv","description":"fichero en CSV"})
 spec.tag({"name":"open","description":"no necesita auth"})
 spec.tag({"name":"stats","description":"condensa o agrega estadisticas"})
 
+### batch tasks, should be suitable for parallelism
+
+def makeBatch(data,t,salt):
+    datalot=[]
+    idsKeyDict=t.idsKeys
+    for linetime,lineid,line in data:
+        for k in idsKeyDict:
+                    if k in line:
+                        if idsKeyDict[k]=="":
+                            del line[k]
+                        else:
+                            line[k]=crypt.crypt(line[k]+salt,idsKeyDict[k])
+                            #alternativas:
+                            #sha512_crypt.encrypt(line[k]+salt salt=ids[k][1:], rounds=5000)
+                            #hashlib...
+        parsedTupleElem=(t,
+                   parse_datetime(linetime), #dateparser.parse(linetime),
+                   lineid,
+                   line)
+        datalot.append(parsedTupleElem)
+    Lines.insert_many(datalot,fields=[Lines.hoja,Lines.fechaBase,Lines.lineId,Lines.line]).on_conflict(
+                       conflict_target=Lines.lineId,
+                       preserve=[Lines.hoja,Lines.fechaBase,Lines.line]).execute()
 
 @falcon.before(validateAuth)
 class Table:
@@ -248,13 +273,13 @@ class Table:
         blur=dict()
         idsKeyDict=dict()
         for x in form['geo'].value.split(','):
-            blur[x]='geo'
+            if len(x) > 0: blur[x]='geo'
         for x in form['tiempo'].value.split(','):
-            blur[x]='tiempo'
+            if len(x) > 0: blur[x]='tiempo'
         for x in form['ids'].value.split(','):
-            idsKeyDict[x]=crypt.mksalt(crypt.METHOD_MD5) #unix only? #use secrets.randbits
+            if len(x) > 0: idsKeyDict[x]=crypt.mksalt(crypt.METHOD_MD5) #unix only? #use secrets.randbits
         for x in form['ignore'].value.split(','):
-            idsKeyDict[x]= ""
+            if len(x) > 0: idsKeyDict[x]= ""
         numlinea=form['linea'].value
          
         Sheet.insert(name=tabla,estado="borrador",fields=dict(),idsKeys=idsKeyDict,blurDict=blur).on_conflict(
@@ -292,33 +317,16 @@ class Table:
                     print(line.keys())
                 if timefield:
                     linetime=line.get(timefield,linetime)
-                for k in idsKeyDict:
-                    if k in line:
-                        if idsKeyDict[k]=="":
-                            del line[k]
-                        else:
-                            line[k]=crypt.crypt(line[k]+salt,idsKeyDict[k])
-                            #alternativas:
-                            #sha512_crypt.encrypt(line[k]+salt salt=ids[k][1:], rounds=5000)
-                            #hashlib...
-                bulkTupleElem=(t,
-                    parse_datetime(linetime),
-                    #dateparser.parse(linetime),
-                    tabla+str(line.get(numlinea,linecount)),
-                    line)
+                bulkTupleElem=( linetime, tabla+str(line.get(numlinea,linecount)), line)
                 if linecount < 5: 
                     print(bulkTupleElem)
                 data.append(bulkTupleElem)
                 if linecount % 10000 ==0 and len(data) > 0 :
-                    Lines.insert_many(data,fields=[Lines.hoja,Lines.fechaBase,Lines.lineId,Lines.line]).on_conflict(
-                       conflict_target=Lines.lineId,
-                       preserve=[Lines.hoja,Lines.fechaBase,Lines.line]).execute()
-                    print (linecount, " lineas ",len(data))
+                    makeBatch(data,t,salt)
                     data=[]
-            if len(data) > 0:   
-                Lines.insert_many(data,fields=[Lines.hoja,Lines.fechaBase,Lines.lineId,Lines.line]).on_conflict(
-                    conflict_target=Lines.lineId,
-                    preserve=[Lines.hoja,Lines.fechaBase,Lines.line]).execute()
+                    if linecount % 100000 == 0: print (linecount, " lineas ")
+            if len(data) > 0:  
+                makeBatch(data,t,salt)
         UploadLog(hoja=t,nlines=linecount,connectionInfo={'user':usuario},options=dict((k,form[k].value) for k in form.keys() if k!='fileName')).save()
         resp.body=json.dumps({"numlines":linecount})
 
