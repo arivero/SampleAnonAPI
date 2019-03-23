@@ -11,6 +11,7 @@ import io
 from hashlib import sha512
 import crypt
 import dateparser
+from ciso8601 import parse_datetime
 
 #Si queremos un validador de la query string quizas se podria usar webargs
 #from webargs import fields  #https://webargs.readthedocs.io/en/latest/framework_support.html#falcon
@@ -300,7 +301,6 @@ class Table:
             data=[]
             for line in csv.DictReader(io.TextIOWrapper(form['fileName'].file), delimiter=';',
                     quoting=csv.QUOTE_MINIMAL, quotechar='"'):
-                #print (key,"file")
                 linecount = linecount + 1
                 if linecount==1: 
                     t.fields=line.keys()
@@ -317,18 +317,24 @@ class Table:
                             #alternativas:
                             #sha512_crypt.encrypt(line[k]+salt salt=ids[k][1:], rounds=5000)
                             #hashlib...
-
                 bulkTupleElem=(t,
-                    dateparser.parse(linetime),
+                    parse_datetime(linetime),
+                    #dateparser.parse(linetime),
                     tabla+str(line.get(numlinea,linecount)),
                     line)
                 if linecount < 5: 
                     print(bulkTupleElem)
                 data.append(bulkTupleElem)
-            print (linecount, " lineas ",len(data))
-            Lines.insert_many(data,fields=[Lines.hoja,Lines.fechaBase,Lines.lineId,Lines.line]).on_conflict(
-                conflict_target=Lines.lineId,
-                preserve=[Lines.hoja,Lines.fechaBase,Lines.line]).execute()
+                if linecount % 10000 ==0 and len(data) > 0 :
+                    Lines.insert_many(data,fields=[Lines.hoja,Lines.fechaBase,Lines.lineId,Lines.line]).on_conflict(
+                       conflict_target=Lines.lineId,
+                       preserve=[Lines.hoja,Lines.fechaBase,Lines.line]).execute()
+                    print (linecount, " lineas ",len(data))
+                    data=[]
+            if len(data) > 0:   
+                Lines.insert_many(data,fields=[Lines.hoja,Lines.fechaBase,Lines.lineId,Lines.line]).on_conflict(
+                    conflict_target=Lines.lineId,
+                    preserve=[Lines.hoja,Lines.fechaBase,Lines.line]).execute()
         UploadLog(hoja=t,nlines=linecount,connectionInfo={'user':usuario},options=dict((k,form[k].value) for k in form.keys() if k!='fileName')).save()
         resp.body=json.dumps({"numlines":linecount})
 
