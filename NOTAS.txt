@@ -7,3 +7,9 @@ esta la duda de si usar psycopg directametne o sqlalchemy con core o peewee
 Una alternativa a gunicorn seria quizas el pywsgi de gevent, vease https://stackoverflow.com/questions/37119047/how-to-use-gevents-with-falcon
 Una alternativa a peewee podria ser usar directamente dataset, https://dataset.readthedocs.io/en/latest/index.html 
 aunque esta construido sobre sqlAlchemy. Por otro lado, curiosamente peewee soporta cierta integracion con dataset (?)
+Marsmallow es interesante porque permite verificar las entradas y generar codigo de swagger mas... bueno, mas verboso aun.
+Pero para una API experimental no viene mucho al caso.
+#Si queremos un validador de la query string quizas se podria usar webargs
+#from webargs import fields  #https://webargs.readthedocs.io/en/latest/framework_support.html#falcon
+#from webargs.falconparser import use_args
+

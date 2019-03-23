@@ -1,9 +1,7 @@
 from apispec import APISpec
-from apispec.ext.marshmallow import MarshmallowPlugin
 import falcon
 from falcon_swagger_ui import register_swaggerui_app #ojo, necesita version reciente del javascript
 from falcon_apispec import FalconPlugin
-from marshmallow import Schema, fields  #OJO, Marshmallow v3
 from falcon_cors import CORS
 import json
 import csv
@@ -13,9 +11,6 @@ import crypt
 import dateparser
 from ciso8601 import parse_datetime
 
-#Si queremos un validador de la query string quizas se podria usar webargs
-#from webargs import fields  #https://webargs.readthedocs.io/en/latest/framework_support.html#falcon
-#from webargs.falconparser import use_args
 
 
 
@@ -86,7 +81,6 @@ def validateAuth(req, resp, resource, params):
         description = ('wrong password')
         raise falcon.HTTPUnauthorized('Authentication required',description)
     params['usuario']=str(user,'utf-8')
-    #print(str(user,'utf-8'),user)
 
 
 cors = CORS(allow_all_origins=True)
@@ -100,7 +94,6 @@ spec = APISpec(
     info=dict(description="Modelo de API para datos anonimizados espacial y temporalmente"),
     plugins=[
         FalconPlugin(app),
-        MarshmallowPlugin(),
     ],
 )
 spec.components.security_scheme("claveSimple",{"type": "http", "scheme": "basic"})
@@ -110,15 +103,6 @@ spec.tag({"name":"csv","description":"fichero en CSV"})
 spec.tag({"name":"open","description":"no necesita auth"})
 spec.tag({"name":"stats","description":"condensa o agrega estadisticas"})
 
-
-#class CategorySchema(Schema):
-#    id = fields.Int()
-#    name = fields.Str(required=True)
-
-#class PetSchema(Schema):
-    #id = fields.Int()
-#    category = fields.Nested(CategorySchema, many=True)
-#    name = fields.Str()
 
 @falcon.before(validateAuth)
 class Table:
