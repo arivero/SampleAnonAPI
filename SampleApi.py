@@ -3,6 +3,7 @@ import falcon
 from falcon_swagger_ui import register_swaggerui_app #ojo, necesita version reciente del javascript
 from falcon_apispec import FalconPlugin
 from falcon_cors import CORS
+import sys
 import json
 import csv
 import io
@@ -12,7 +13,10 @@ import crypt
 import datetime
 from dateutil.parser import parse
 from ciso8601 import parse_datetime
-
+import pyhash
+hasher=pyhash.city_64()
+#consider xxhash? https://pypi.org/project/xxhash/  
+#Cityhash? Others? https://www.reddit.com/r/programming/comments/700xiv/xxhash_extremely_fast_noncryptographic_hash/
 
 
 
@@ -130,6 +134,21 @@ def makeBatch(data,t,salt):
     Lines.insert_many(datalot,fields=[Lines.hoja,Lines.fechaBase,Lines.lineId,Lines.line]).on_conflict(
                        conflict_target=Lines.lineId,
                        preserve=[Lines.hoja,Lines.fechaBase,Lines.line]).execute()
+
+
+#para mover los intervalos temporales, no tengo claro si hasher es overkill
+#(y nos bastaria con numericos, https://stackoverflow.com/questions/664014/what-integer-hash-function-are-good-that-accepts-an-integer-hash-key)
+#o si es underkill, y tendriamos que usar calidad criptografica
+
+def move(seconds,seed=""):
+    multiplo=4096 #o random basado en seed
+    inferior=(int(seconds ) // multiplo) * multiplo
+    mapinferior=inferior+ (hasher(inferior.to_bytes(4,byteorder=sys.byteorder),seed) % multiplo )- multiplo//2
+    superior=inferior+multiplo
+    mapsuperior=superior+ (hasher(superior.to_bytes(4,byteorder=sys.byteorder),seed) % multiplo) - multiplo//2
+    escala=(mapsuperior-mapinferior)/multiplo
+    seconds=(seconds-inferior)*escala + mapinferior
+    return seconds
 
 @falcon.before(validateAuth)
 class Table:
@@ -388,6 +407,7 @@ class Sample:
         summary: Muestrea una tabla
         tags:
             - open
+
         parameters:
             - in: path
               name: tabla
@@ -418,6 +438,7 @@ class Sample:
                       type: object
         """
         #pass
+
         print(tabla)
         sampleFactor=req.params.get('sample','1.0')
         #base=Lines.select(Lines.line).where(Lines.hoja.name==tabla)
@@ -486,6 +507,26 @@ class Decala:
         summary: decala datos siguiendo una semilla
         tags:
            - open
+        parameters:
+            - in: path
+              name: tabla
+              schema:
+                 type: string
+            - in: query
+              name: interval
+              schema:
+                 type: integer
+              description: muestreo en minutos
+            - in: query
+              name: seed
+              schema:
+                 type: string
+              description: semilla para generar el mismo decalado en distintas tablas
+            - in: query
+              name: from 
+              schema:
+                 type: string
+              description: fecha de inicio, YYYYMMDDHHmm
         responses:
            '200':
              description: resultado de la operacion
@@ -494,7 +535,40 @@ class Decala:
                    schema:
                       type: object
         """
-    pass
+        print(tabla)
+        seed=req.params.get('seed','0000')
+        baseTable=Sheet.get(Sheet.name==tabla)
+        if baseTable.estado=="activa":
+            base=baseTable.lines
+            if req.params.get('from','') > '':
+                iniciorango=parse(req.params.get('from',''))
+                base=base.where(Lines.fechaBase > iniciorango)
+                if req.params.get('interval','') > '':
+                    finalrango=iniciorango+datetime.timedelta(minutes=int(req.params.get('interval')))
+                    base=base.where(Lines.fechaBase<finalrango)
+
+            base=base.limit(3600)
+            response=[]
+            for row in base:
+                line=row.line
+                for x in baseTable.blurDict:
+                    if x in line:
+                        if baseTable.blurDict[x]=="geo":
+                            #TO DO: redondear a 20 segundos (cuadricula minera)
+                            pass
+                        elif baseTable.blurDict[x]=="tiempo":
+                            try:
+                                fecha=parse(line[x])
+                            except:
+                                fecha=parse("1975-01-01 00:00:00.000")
+                            unixtime=fecha.timestamp()
+                            fecha=datetime.datetime.fromtimestamp(move(unixtime,seed))
+                            line[x]=fecha.isoformat()
+
+                response.append(line)
+            resp.body=json.dumps({"data":response,"numlines":len(response)},indent=2)
+        else:
+            resp.body=json.dumps({"warning":"la tabla existe pero no esta activa"})
 decala_r=Decala()
 app.add_route("/decalar/{tabla}/",decala_r)
 spec.path(resource=decala_r)
