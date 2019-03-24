@@ -13,3 +13,5 @@ Pero para una API experimental no viene mucho al caso.
 #from webargs import fields  #https://webargs.readthedocs.io/en/latest/framework_support.html#falcon
 #from webargs.falconparser import use_args
 
+fuera de produccion, una mejora de velocidad es poner la tabla de lineas a unlogged
+y quizas considerar el modulo timescale de postgres

@@ -1,2 +1,4 @@
 ejecuta en desarrollo usando
 gunicorn3 --log-level=DEBUG   -b 0.0.0.0:8080 --reload SampleApi:app
+para https:
+sudo PYTHONUNBUFFERED=1 gunicorn3 --timeout 360000 --certfile=/etc/ssl/certs/ssl-cert-snakeoil.pem --keyfile=/etc/ssl/private/ssl-cert-snakeoil.key -R --capture-output --log-level=DEBUG   -b 0.0.0.0:443 --reload SampleApi:app 2>&1  | tee -a gunicorn443New.lo
