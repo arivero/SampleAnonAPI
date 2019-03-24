@@ -8,7 +8,9 @@ import csv
 import io
 from hashlib import sha512
 import crypt
-import dateparser
+#import dateparser #or see https://opensource.com/article/18/4/python-datetime-libraries
+import datetime
+from dateutil.parser import parse
 from ciso8601 import parse_datetime
 
 
@@ -402,15 +404,10 @@ class Sample:
                  type: string
               description: proporcion de muestreo, tanto por uno
             - in: query
-              name: format
-              schema:
-                 type: string
-              description: formato de salida, json o csv quizas
-            - in: query
               name: from 
               schema:
                  type: string
-              description: fecha de inicio, YYYYMMDDHHMM
+              description: fecha de inicio, YYYY/MM/DDTHH:mm
               
         responses:
            '200':
@@ -427,8 +424,33 @@ class Sample:
         baseTable=Sheet.get(Sheet.name==tabla)
         if baseTable.estado=="activa":
             base=baseTable.lines
-            base=base.where(fn.Random()<sampleFactor)
-            response=[row.line for row in base] 
+            if req.params.get('from','') > '':
+                iniciorango=parse(req.params.get('from',''))
+                base=base.where(Lines.fechaBase > iniciorango)
+                if req.params.get('interval','') > '':
+                    finalrango=iniciorango+datetime.timedelta(minutes=int(req.params.get('interval')))
+                    base=base.where(Lines.fechaBase<finalrango)
+
+            base=base.where(fn.Random()<sampleFactor).limit(3600)
+            response=[]
+            for row in base:
+                line=row.line
+                for x in baseTable.blurDict:
+                    if x in line:
+                        if baseTable.blurDict[x]=="geo":
+                            #TO DO: redondear a 20 segundos (cuadricula minera)
+                            pass
+                        elif baseTable.blurDict[x]=="tiempo":
+                            try:
+                                fecha=parse(line[x])
+                            except:
+                                fecha=parse("1975-01-01 00:00:00.000")
+                            minutos=fecha.minute
+                            fecha=fecha-datetime.timedelta(minutes=minutos%12)  #REDONDEO A MULTIPLO
+                            fecha=fecha.replace(second=0,microsecond=0)
+                            line[x]=fecha.isoformat()
+
+                response.append(line)
             resp.body=json.dumps({"data":response,"numlines":len(response)})
         else:
             resp.body=json.dumps({"warning":"la tabla existe pero no esta activa"})
