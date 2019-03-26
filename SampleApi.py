@@ -7,6 +7,7 @@ import sys
 import json
 import csv
 import io
+from collections import defaultdict
 from hashlib import sha512
 import crypt
 #import dateparser #or see https://opensource.com/article/18/4/python-datetime-libraries
@@ -17,7 +18,7 @@ import pyhash
 hasher=pyhash.city_64()
 #consider xxhash? https://pypi.org/project/xxhash/  
 #Cityhash? Others? https://www.reddit.com/r/programming/comments/700xiv/xxhash_extremely_fast_noncryptographic_hash/
-
+import statistics #or numpy
 
 
 ###### The peewee ORM
@@ -97,7 +98,7 @@ app=falcon.API(middleware=[PeeweeConnectionMW(),cors.middleware])
     #consider also falcon_cors.CORS with allow_credentials_all_origins etc
 spec = APISpec(
     title='API Anonimizada',
-    version='0.5.0',
+    version='0.9.0',
     openapi_version='3.0.0',  #2.0 usa consumes, 3.0 usa requestBody pero no sake muy bien en falcon_swagger_ui
     info=dict(description="Modelo de API para datos anonimizados espacial y temporalmente"),
     plugins=[
@@ -106,10 +107,8 @@ spec = APISpec(
 )
 spec.components.security_scheme("claveSimple",{"type": "http", "scheme": "basic"})
 spec.tag({"name":"admin","description":"necesitan privilegios"})
-#spec.tag({"name":"default","description":"default category"})
 spec.tag({"name":"csv","description":"fichero en CSV"})
-spec.tag({"name":"open","description":"no necesita auth"})
-spec.tag({"name":"stats","description":"condensa o agrega estadisticas"})
+spec.tag({"name":"open","description":"no necesita auth"}) 
 
 ### batch tasks, should be suitable for parallelism
 
@@ -139,16 +138,25 @@ def makeBatch(data,t,salt):
 #para mover los intervalos temporales, no tengo claro si hasher es overkill
 #(y nos bastaria con numericos, https://stackoverflow.com/questions/664014/what-integer-hash-function-are-good-that-accepts-an-integer-hash-key)
 #o si es underkill, y tendriamos que usar calidad criptografica
-
+#Para otras ideas, google Monte Carlo generation of monotonic functions
 def move(seconds,seed=""):
-    multiplo=4096 #o random basado en seed
-    inferior=(int(seconds ) // multiplo) * multiplo
+    multiplo=4096 #o random basado en seed. En cualquier caso, si es demasiado alto ojo porque 
+                  #la escala podria recuperarse por estadistica. Por esto mismo fijamos las seeds posibles
+    inferior=(int(seconds ) // multiplo) * multiplo #or secret floor function
     mapinferior=inferior+ (hasher(inferior.to_bytes(4,byteorder=sys.byteorder),seed) % multiplo )- multiplo//2
-    superior=inferior+multiplo
+    superior=inferior+multiplo #or secret ceil function
     mapsuperior=superior+ (hasher(superior.to_bytes(4,byteorder=sys.byteorder),seed) % multiplo) - multiplo//2
-    escala=(mapsuperior-mapinferior)/multiplo
+    escala=(mapsuperior-mapinferior)/multiplo #or secret interpolator, bezier-like
     seconds=(seconds-inferior)*escala + mapinferior
     return seconds
+
+def moveLatLon(point,seed=""):
+  #from geopy.distance import geodesic
+  #unimplemented
+  #se podria considerar, aparte de ruido aleatorio,
+  #el moverlo mediante una version bidimensional de move
+  #o con el propio move en la linea de Peano-Hilbert que usa google maps
+  pass
 
 @falcon.before(validateAuth)
 class Table:
@@ -202,6 +210,8 @@ class Table:
     #    summary: sustituye con una tabla que sea similar a la producida por GET!!
     #    """
     #    pass
+
+    #patch en general permite cambiar el meta de la tabla sin borrarla
     def on_patch(self,req,resp,tabla,usuario):
         """
         ---
@@ -216,6 +226,21 @@ class Table:
               schema:
                   type: string
               description: nombre de la tabla 
+            - in: query
+              name: timeDeltas
+              schema:
+                  type: string
+              description: redondeo de tiempos
+            - in: query
+              name: geoDeltas
+              schema:
+                  type: string
+              description: redondeo de coordenadas
+            - in: query
+              name: estado
+              schema:
+                  type: string
+              description: nuevo estado de la tabla (default:activa)
         responses:
            '200':
              description: resultado de la operacion
@@ -261,7 +286,11 @@ class Table:
                           description: columnas que deben ser pseudoanonimizadas
                        ignore:
                           type: string
-                          description: columnas que deben ser ignoradas        
+                          description: columnas que deben ser ignoradas      
+                       cortestiempo: #si cero ¿no hay corte o no hay seed?
+                       seeds: None? 
+                       cortesgeo:
+                          description: pueden ser distintos para sample, agregado y decalado
                        
         parameters:
             - in: path
@@ -467,7 +496,7 @@ class Sample:
                             except:
                                 fecha=parse("1975-01-01 00:00:00.000")
                             minutos=fecha.minute
-                            fecha=fecha-datetime.timedelta(minutes=minutos%12)  #REDONDEO A MULTIPLO
+                            fecha=fecha-datetime.timedelta(minutes=minutos% 12 )#baseTable.info["rTiempo"]["sample"])  #REDONDEO A MULTIPLO
                             fecha=fecha.replace(second=0,microsecond=0)
                             line[x]=fecha.isoformat()
 
@@ -479,6 +508,10 @@ sample_resource=Sample()
 app.add_route("/sample/{tabla}/",sample_resource)
 spec.path(resource=sample_resource)
 
+#la motivacion principal para que exista la agregacion es que tanto el redondeo
+#como el desplazamiento alteran los momentos de la distribucion, y el usuario
+#de la api puede necesitar esa informacion. Ademas, como resultado extra, se generan
+#estadisticas de las columnas adicionales
 class Agrega:
     def on_get(self,req,resp,tabla):
         """
@@ -486,7 +519,21 @@ class Agrega:
         summary: agrega tabla por intervalos
         tags: 
           - open
-          - stats
+        parameters:
+            - in: path
+              name: tabla
+              schema:
+                 type: string
+            - in: query
+              name: interval
+              schema:
+                 type: integer
+              description: longitud del muestreo en minutos
+            - in: query
+              name: from 
+              schema:
+                 type: string
+              description: fecha de inicio, YYYY/MM/DDTHH:mm
         responses:
            '200':
              description: resultado de la operacion
@@ -495,6 +542,60 @@ class Agrega:
                    schema:
                       type: object
         """
+
+        print(tabla)
+        baseTable=Sheet.get(Sheet.name==tabla)
+        if baseTable.estado=="activa":
+            base=baseTable.lines
+            if req.params.get('from','') > '':
+                iniciorango=parse(req.params.get('from',''))
+                base=base.where(Lines.fechaBase > iniciorango)
+                if req.params.get('interval','') > '':
+                    finalrango=iniciorango+datetime.timedelta(minutes=int(req.params.get('interval')))
+                    base=base.where(Lines.fechaBase<finalrango)
+            #base=base.where(fn.Random()<sampleFactor)#.limit(3600)
+            agregacion=defaultdict(lambda: defaultdict(list))
+            for row in base:
+                line=row.line
+                line["__key"]=()
+                for x in baseTable.blurDict:
+                    if x in line:
+                        if baseTable.blurDict[x]=="geo":
+                            #TO DO: redondear a 20 segundos (cuadricula minera)
+                            pass
+                        elif baseTable.blurDict[x]=="tiempo":
+                            try:
+                                fecha=parse(line[x])
+                            except:
+                                fecha=parse("1975-01-01 00:00:00.000")
+                            minutos=fecha.minute
+                            fechaBase=fecha#-datetime.timedelta(minutes=minutos) #baseTable.info["rTiempo"]["agrega"])  #REDONDEO A MULTIPLO
+                            fechaBase=fechaBase.replace(day=1,hour=0,minute=0,second=0,microsecond=0)
+                            line[x]=fecha.timestamp()-fechaBase.timestamp() 
+                            line["__key"]+= (fechaBase.isoformat(),)
+                line["__key"]=",".join(line["__key"])
+                for k , v in line.items():
+                  if k ==  "__key":
+                    continue
+                  try:
+                    valor=float(v)
+                    agregacion[line["__key"]][k].append(valor)
+                  except ValueError:
+                    pass
+                agregacion[line["__key"]]["__totales"].append(1)
+            response={}
+            for index,k in agregacion.items():
+              response[index]={}
+              for col,serie in k.items():
+                res={"count": len(serie),
+                    "avg": statistics.mean(serie) if len(serie) > 0 else -1,
+                    "stdev":statistics.stdev(serie) if len(serie) > 1 else -1,
+                  }
+                response[index][col]=res
+            print (response)
+            resp.body=json.dumps({"clavesAgregacion":baseTable.blurDict,"data":response})
+        else:
+            resp.body=json.dumps({"warning":"la tabla existe pero no esta activa"})
     pass
 agrega_r=Agrega()
 app.add_route("/agregar/{tabla}/",agrega_r)
@@ -521,7 +622,7 @@ class Decala:
               name: seed
               schema:
                  type: string
-              description: semilla para generar el mismo decalado en distintas tablas
+              description: tabla base cuya semilla se quiere usar para tener tiempos compatibles
             - in: query
               name: from 
               schema:
@@ -537,6 +638,8 @@ class Decala:
         """
         print(tabla)
         seed=req.params.get('seed','0000')
+        #la tabla de referencia puede compatibilizar tanto seed como ruido
+        #si la seed de referencia es none entonces no se autoriza el Decalado.
         baseTable=Sheet.get(Sheet.name==tabla)
         if baseTable.estado=="activa":
             base=baseTable.lines
@@ -573,13 +676,36 @@ decala_r=Decala()
 app.add_route("/decalar/{tabla}/",decala_r)
 spec.path(resource=decala_r)
 
-class Manage:
-    def on_get(self,req,resp,comando):
+class Info:
+    def on_get(self,req,resp):
         """
         ---
         tags:
            - open
-           - stats
+        description: comandos de informacion (list,log,..) Vease ademas /disponible para la info publica
+        responses:
+           '200':
+                description: resultado de la operacion
+        """
+        respuesta=[]
+        for row in Sheet:
+          if not "DELETED" in row.name and row.estado=="activa":
+                    respuesta.append({"tabla":row.name,"campos:":row.fields,
+                        "redondeos":row.blurDict, "pseudonimizados":[x for x in row.idsKeys]})
+        resp.body=json.dumps(respuesta)
+manage_resource=Info()
+app.add_route("/api/info/",manage_resource)
+spec.path(resource=manage_resource)
+
+@falcon.before(validateAuth)
+class Manage:
+    def on_get(self,req,resp,comando,usuario):
+        """
+        ---
+        tags:
+           - admin
+        security:
+            - claveSimple: []
         parameters:
             - in: path
               name: comando
@@ -587,7 +713,7 @@ class Manage:
                  type: string
                  enum: [list,log]
                  example: list
-        description: comandos de informacion (list,log,..)
+        description: comandos de informacion (list,log,..) Vease ademas /disponible para la info publica
         responses:
            '200':
                 description: resultado de la operacion
@@ -612,7 +738,7 @@ app.add_route("/api/{comando}/",manage_resource)
 spec.path(resource=manage_resource)
 
 
-from pprint import pprint
+#from pprint import pprint
 #pprint(spec.to_dict())
 
 class StaticResource(object):
@@ -624,10 +750,4 @@ register_swaggerui_app(
     app, SWAGGERUI_URL, '/static/swagger.json',
     page_title='Api Anonimizada de Movilidad',
     favicon_url='https://falconframework.org/favicon-32x32.png',
-    #config hay que modificarla para poner los campos de OAuth
-    #config={'supportedSubmitMehods': ['get','post','put'], }
 )
-
-
-#### COMENTARIOS FINALES, etc
-#async: aunque sea WSGI, falcon es bastante rapido, asi que seguramente no hace falta considear ASGI aun. 
