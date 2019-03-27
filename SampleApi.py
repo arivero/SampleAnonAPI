@@ -9,6 +9,7 @@ import csv
 import io
 from collections import defaultdict
 from hashlib import sha512
+import secrets
 import crypt
 #import dateparser #or see https://opensource.com/article/18/4/python-datetime-libraries
 import datetime
@@ -98,7 +99,7 @@ app=falcon.API(middleware=[PeeweeConnectionMW(),cors.middleware])
     #consider also falcon_cors.CORS with allow_credentials_all_origins etc
 spec = APISpec(
     title='API Anonimizada',
-    version='0.9.0',
+    version='0.9.1',
     openapi_version='3.0.0',  #2.0 usa consumes, 3.0 usa requestBody pero no sake muy bien en falcon_swagger_ui
     info=dict(description="Modelo de API para datos anonimizados espacial y temporalmente"),
     plugins=[
@@ -114,8 +115,10 @@ spec.tag({"name":"open","description":"no necesita auth"})
 
 def makeBatch(data,t,salt):
     datalot=[]
+    conflictset=set()
     idsKeyDict=t.idsKeys
     for linetime,lineid,line in data:
+        #print(line,idsKeyDict)
         for k in idsKeyDict:
                     if k in line:
                         if idsKeyDict[k]=="":
@@ -125,11 +128,13 @@ def makeBatch(data,t,salt):
                             #alternativas:
                             #sha512_crypt.encrypt(line[k]+salt salt=ids[k][1:], rounds=5000)
                             #hashlib...
-        parsedTupleElem=(t,
+        if lineid not in conflictset:
+          parsedTupleElem=(t,
                    parse_datetime(linetime), #dateparser.parse(linetime),
                    lineid,
                    line)
-        datalot.append(parsedTupleElem)
+          datalot.append(parsedTupleElem)
+          conflictset.add(lineid) #VALUES no admite varios conflict, usamos solo el primero
     Lines.insert_many(datalot,fields=[Lines.hoja,Lines.fechaBase,Lines.lineId,Lines.line]).on_conflict(
                        conflict_target=Lines.lineId,
                        preserve=[Lines.hoja,Lines.fechaBase,Lines.line]).execute()
@@ -241,16 +246,46 @@ class Table:
               schema:
                   type: string
               description: nuevo estado de la tabla (default:activa)
+            - in: query
+              name: descripcion
+              schema:
+                  type: string
+              description: descripcion de la tabla
+            - in: query
+              name: familia
+              schema:
+                  type: string
+              description: tabla de la que copia las seeds
         responses:
            '200':
              description: resultado de la operacion
         """
         try:
             t=Sheet.get(Sheet.name==tabla) 
-            t.estado="activa"
+            t.estado="activa" if req.params.get("estado",'')=='' else req.params["estado"]
+            info=t.info
+            print(req.params)
+            if req.params.get("descripcion",'') > '':
+              info["descripcion"]=req.params["descripcion"]
+            if req.params.get("timeDeltas",'') >'':
+              tiempos=[int(x)*60 for x in req.params["timeDeltas"].split(',')]
+              if len(tiempos)==1:
+                tiempos.append(10*tiempos[0])
+              if len(tiempos)==2:
+                 tiempos.append(10*tiempos[1])     
+              info["timeDeltas"]=tiempos
+            if req.params.get("geoDeltas",'') >'':
+              tiempos=[int(x) for x in req.params["geoDeltas"].split(',')]
+              if len(tiempos)==1:
+                tiempos.append(10*tiempos[0])
+              if len(tiempos)==2:
+                 tiempos.append(2*tiempos[1])     
+              info["geoDeltas"]=tiempos 
+            info["nlineas"]=t.lines.count() 
+            t.info=info            
             t.save()
             UploadLog(hoja=t,nlines=-1,connectionInfo={'user':usuario},options={"comando":"activar tabla"}).save()
-            resp.body=json.dumps({"Activar":t.name})
+            resp.body=json.dumps({"Activar":t.name,"info":info})
         except DoesNotExist:
             resp.body=json.dumps({"NoExiste":tabla})
     def on_post(self,req,resp,tabla,usuario):
@@ -287,11 +322,6 @@ class Table:
                        ignore:
                           type: string
                           description: columnas que deben ser ignoradas      
-                       cortestiempo: #si cero ¿no hay corte o no hay seed?
-                       seeds: None? 
-                       cortesgeo:
-                          description: pueden ser distintos para sample, agregado y decalado
-                       
         parameters:
             - in: path
               name: tabla
@@ -331,8 +361,12 @@ class Table:
         for x in form['ignore'].value.split(','):
             if len(x) > 0: idsKeyDict[x]= ""
         numlinea=form['linea'].value
-         
-        Sheet.insert(name=tabla,estado="borrador",fields=dict(),idsKeys=idsKeyDict,blurDict=blur).on_conflict(
+        infoDict=dict()
+        infoDict["timeDeltas"]=[12*60,3600,4096] 
+        infoDict["geoDeltas"]=[20,20,20]
+        infoDict["descripcion"]=""
+        infoDict["baseSeed"]=secrets.token_hex(12)
+        Sheet.insert(name=tabla,estado="borrador",fields=dict(),idsKeys=idsKeyDict,blurDict=blur,info=infoDict).on_conflict(
             conflict_target=[Sheet.name],
             preserve=[],#[Sheet.fields,Sheet.idsKeys],
             update={Sheet.blurDict: Sheet.blurDict.concat(blur),},  
@@ -413,7 +447,8 @@ class Table:
         try:
             t=Sheet.get(Sheet.name==tabla)
             #t.lines.delete()
-            Lines.delete().where(Lines.hoja==t)
+            q=Lines.delete().where(Lines.hoja==t)
+            q.execute()
             #t.idsKeys={}
             #t.blurDict={}
             #t.fields=[]
@@ -534,6 +569,16 @@ class Agrega:
               schema:
                  type: string
               description: fecha de inicio, YYYY/MM/DDTHH:mm
+            - in: query
+              name: exclude 
+              schema:
+                 type: string
+              description: excluir columnas en esta lista
+            - in: query
+              name: factor
+              schema:
+                  type: integer
+              description: factor de escala de la agregacion respecto a la predefinida
         responses:
            '200':
              description: resultado de la operacion
@@ -544,6 +589,8 @@ class Agrega:
         """
 
         print(tabla)
+        #nota: se pueden excluir columnas de indice, ademas de columnas estadisticas
+        #TO DO: se podria preparar una llamada con indicacion de binsizes y cosas asi, pero convendria estandarizar
         baseTable=Sheet.get(Sheet.name==tabla)
         if baseTable.estado=="activa":
             base=baseTable.lines
@@ -557,7 +604,7 @@ class Agrega:
             agregacion=defaultdict(lambda: defaultdict(list))
             for row in base:
                 line=row.line
-                line["__key"]=()
+                linekey=()
                 for x in baseTable.blurDict:
                     if x in line:
                         if baseTable.blurDict[x]=="geo":
@@ -572,17 +619,15 @@ class Agrega:
                             fechaBase=fecha#-datetime.timedelta(minutes=minutos) #baseTable.info["rTiempo"]["agrega"])  #REDONDEO A MULTIPLO
                             fechaBase=fechaBase.replace(day=1,hour=0,minute=0,second=0,microsecond=0)
                             line[x]=fecha.timestamp()-fechaBase.timestamp() 
-                            line["__key"]+= (fechaBase.isoformat(),)
-                line["__key"]=",".join(line["__key"])
+                            linekey+= (fechaBase.isoformat(),)
+                linekey=",".join(linekey)
                 for k , v in line.items():
-                  if k ==  "__key":
-                    continue
                   try:
                     valor=float(v)
-                    agregacion[line["__key"]][k].append(valor)
+                    agregacion[linekey][k].append(valor)
                   except ValueError:
                     pass
-                agregacion[line["__key"]]["__totales"].append(1)
+                agregacion[linekey]["__totales"].append(1)
             response={}
             for index,k in agregacion.items():
               response[index]={}
@@ -590,9 +635,11 @@ class Agrega:
                 res={"count": len(serie),
                     "avg": statistics.mean(serie) if len(serie) > 0 else -1,
                     "stdev":statistics.stdev(serie) if len(serie) > 1 else -1,
+                    #con numpy se podrian dar mas parametros, curtosis, otros momentos, etc,
+                    #incluso fits a otras distro como poisson o weibull
                   }
                 response[index][col]=res
-            print (response)
+            #print (response)
             resp.body=json.dumps({"clavesAgregacion":baseTable.blurDict,"data":response})
         else:
             resp.body=json.dumps({"warning":"la tabla existe pero no esta activa"})
@@ -622,7 +669,7 @@ class Decala:
               name: seed
               schema:
                  type: string
-              description: tabla base cuya semilla se quiere usar para tener tiempos compatibles
+              description: tabla base cuya semilla se quiere intentar usar para tener tiempos compatibles
             - in: query
               name: from 
               schema:
@@ -637,11 +684,13 @@ class Decala:
                       type: object
         """
         print(tabla)
-        seed=req.params.get('seed','0000')
+        #seed=req.params.get('seed','0000')
         #la tabla de referencia puede compatibilizar tanto seed como ruido
         #si la seed de referencia es none entonces no se autoriza el Decalado.
         baseTable=Sheet.get(Sheet.name==tabla)
         if baseTable.estado=="activa":
+            seed=baseTable.info["baseSeed"]
+            interval=baseTable.info["timeDeltas"][2]
             base=baseTable.lines
             if req.params.get('from','') > '':
                 iniciorango=parse(req.params.get('from',''))
@@ -665,7 +714,7 @@ class Decala:
                             except:
                                 fecha=parse("1975-01-01 00:00:00.000")
                             unixtime=fecha.timestamp()
-                            fecha=datetime.datetime.fromtimestamp(move(unixtime,seed))
+                            fecha=datetime.datetime.fromtimestamp(move(unixtime,seed,interval))
                             line[x]=fecha.isoformat()
 
                 response.append(line)
@@ -690,7 +739,8 @@ class Info:
         respuesta=[]
         for row in Sheet:
           if not "DELETED" in row.name and row.estado=="activa":
-                    respuesta.append({"tabla":row.name,"campos:":row.fields,
+                    respuesta.append({"tabla":row.name, "descr":row.info["descripcion"],
+                         "campos":row.fields, "timeDeltas": row.info["timeDeltas"],
                         "redondeos":row.blurDict, "pseudonimizados":[x for x in row.idsKeys]})
         resp.body=json.dumps(respuesta)
 manage_resource=Info()
@@ -723,12 +773,12 @@ class Manage:
             for row in Sheet:
                 if not "DELETED" in row.name:
                     respuesta.append({"tabla":row.name,"campos:":row.fields,
-                        "redondeos":row.blurDict, "pseudonimizados":[x for x in row.idsKeys]})
+                        "redondeos":row.blurDict, "info":row.info, "pseudonimizados":[x for x in row.idsKeys]})
             resp.body=json.dumps(respuesta)
         elif comando=="log":
             respuesta=[]
             for row in UploadLog:
-                if not "DELETED" in row.hoja.name:
+                #if not "DELETED" in row.hoja.name:
                     respuesta.append([row.fecha.isoformat(),row.hoja.name,row.connectionInfo,row.nlines,row.options])
             resp.body=json.dumps(respuesta)
         else:
