@@ -26,7 +26,7 @@ import statistics #or numpy
 from peewee import *
 from playhouse.postgres_ext import *
 
-db = PostgresqlExtDatabase('movilidad', user='ayto') # password='', host='127.0.0.1')
+db = PostgresqlExtDatabase('movilidad', user='ayto',server_side_cursors=True) # password='', host='127.0.0.1')
 
 class BaseModel(Model):
     class Meta:
@@ -38,7 +38,7 @@ class PeeweeConnectionMW(object):
             db.connect()  #o    get_conn()
 
     def process_response(self, req, resp, resource):
-        if not db.is_closed():
+        if False and not db.is_closed():
             db.close()
 
 
@@ -144,7 +144,7 @@ def makeBatch(data,t,salt):
 #(y nos bastaria con numericos, https://stackoverflow.com/questions/664014/what-integer-hash-function-are-good-that-accepts-an-integer-hash-key)
 #o si es underkill, y tendriamos que usar calidad criptografica
 #Para otras ideas, google Monte Carlo generation of monotonic functions
-def move(seconds,seed=""):
+def move(seconds,seed="",multiplo=4096):
     multiplo=4096 #o random basado en seed. En cualquier caso, si es demasiado alto ojo porque 
                   #la escala podria recuperarse por estadistica. Por esto mismo fijamos las seeds posibles
     inferior=(int(seconds ) // multiplo) * multiplo #or secret floor function
@@ -198,9 +198,13 @@ class Table:
             wr=csv.writer(respuesta,delimiter=';')#,quoting=csv.QUOTE_MINIMAL)
             wr.writerow(fields)
             resp.content_type='text/csv'
-            for elem in t.lines:
-                wr.writerow([elem.line.get(x,"NULL") for x in fields])
-            resp.body=respuesta.getvalue()
+            query=Lines.select().where(Lines.hoja==t)
+            cursor=query.iterator()
+            #for elem in t.lines:
+            #    wr.writerow([elem.line.get(x,"NULL") for x in fields])
+            resp_line=map(lambda e: bytes(';'.join([e.line.get(x,"NULL") for x in fields])+'\n','utf-8'),cursor)
+            #resp.body=respuesta.getvalue()
+            resp.stream=resp_line
         else:
             resp.body=json.dumps({"NoExiste":tabla})
 
