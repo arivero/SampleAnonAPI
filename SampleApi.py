@@ -38,7 +38,7 @@ class PeeweeConnectionMW(object):
             db.connect()  #o    get_conn()
 
     def process_response(self, req, resp, resource):
-        if False and not db.is_closed():
+        if resp.stream==None and not db.is_closed():
             db.close()
 
 
@@ -163,6 +163,33 @@ def moveLatLon(point,seed=""):
   #o con el propio move en la linea de Peano-Hilbert que usa google maps
   pass
 
+#Esta clase es para que falcon mande un aviso una vez ha 
+#terminado de mandar el fichero. Posiblemente habria que sustituirlo por algo
+#mas async/await en el on_get
+class closingMap(map):
+  def close(self):
+    print("fichero enviado")
+    db.close()
+
+import os
+def csvStream(cursor,fields):
+  k=0
+  r,w=os.pipe()
+  wfile=open(w,'w',4096*100)
+  wr=csv.writer(wfile,delimiter=';')
+  rd=open(r,'rb',0)
+  wr.writerow(fields)
+  for elem in cursor:
+    wr.writerow([elem.line.get(x,"NULL") for x in fields]) 
+    k=k+1 
+    if k % 60 == 0:  #mejor 100 o 200
+      wfile.flush() 
+      yield os.read(r,4096*100)
+      #yield rd.readline()
+  db.close()
+
+
+
 @falcon.before(validateAuth)
 class Table:
     def on_get(self,req,resp,tabla,usuario):
@@ -194,17 +221,17 @@ class Table:
             t=Sheet.get(Sheet.name==tabla)
             ignored=[k for k in  t.idsKeys if t.idsKeys[k]==""]
             fields=[x for x in t.fields if x not in ignored]
-            respuesta=io.StringIO()  #or with as 
-            wr=csv.writer(respuesta,delimiter=';')#,quoting=csv.QUOTE_MINIMAL)
-            wr.writerow(fields)
+            #respuesta=io.StringIO()  #or with as 
+            #wr=csv.writer(respuesta,delimiter=';')#,quoting=csv.QUOTE_MINIMAL)
+            #wr.writeheader() #or writerow(fields)
             resp.content_type='text/csv'
             query=Lines.select().where(Lines.hoja==t)
             cursor=query.iterator()
             #for elem in t.lines:
             #    wr.writerow([elem.line.get(x,"NULL") for x in fields])
-            resp_line=map(lambda e: bytes(';'.join([e.line.get(x,"NULL") for x in fields])+'\n','utf-8'),cursor)
+            #resp_line=closingMap(lambda e: bytes(';'.join([e.line.get(x,"NULL") for x in fields])+'\n','utf-8'),cursor)
             #resp.body=respuesta.getvalue()
-            resp.stream=resp_line
+            resp.stream=csvStream(cursor,fields) #resp_line
         else:
             resp.body=json.dumps({"NoExiste":tabla})
 
