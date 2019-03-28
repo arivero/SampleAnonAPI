@@ -171,8 +171,11 @@ class closingMap(map):
     print("fichero enviado")
     db.close()
 
+#en cualquier caso, usar un map es lento para enviar la respuesta,
+#asi que toca usar generadores
+
 import os
-def csvStream(cursor,fields):
+def csvPipedStream(cursor,fields):
   k=0
   r,w=os.pipe()
   wfile=open(w,'w',4096*100)
@@ -188,7 +191,21 @@ def csvStream(cursor,fields):
       #yield rd.readline()
   db.close()
 
-
+def csvStream(cursor,fields):
+  k=0
+  w=io.StringIO() 
+  wr=csv.writer(w,delimiter=';')
+  wr.writerow(fields)
+  for elem in cursor:
+    wr.writerow([elem.line.get(x,"NULL") for x in fields]) 
+    k=k+1 
+    if k % 1200 == 0:  #basta con 120, esto gasta mas memoria
+      yield bytes(w.getvalue(),'utf-8')
+      w.seek(0)
+      w.truncate()
+  if k % 1200 != 0:
+    yield bytes(w.getvalue(),'utf-8')
+  db.close()
 
 @falcon.before(validateAuth)
 class Table:
@@ -221,16 +238,9 @@ class Table:
             t=Sheet.get(Sheet.name==tabla)
             ignored=[k for k in  t.idsKeys if t.idsKeys[k]==""]
             fields=[x for x in t.fields if x not in ignored]
-            #respuesta=io.StringIO()  #or with as 
-            #wr=csv.writer(respuesta,delimiter=';')#,quoting=csv.QUOTE_MINIMAL)
-            #wr.writeheader() #or writerow(fields)
             resp.content_type='text/csv'
             query=Lines.select().where(Lines.hoja==t)
             cursor=query.iterator()
-            #for elem in t.lines:
-            #    wr.writerow([elem.line.get(x,"NULL") for x in fields])
-            #resp_line=closingMap(lambda e: bytes(';'.join([e.line.get(x,"NULL") for x in fields])+'\n','utf-8'),cursor)
-            #resp.body=respuesta.getvalue()
             resp.stream=csvStream(cursor,fields) #resp_line
         else:
             resp.body=json.dumps({"NoExiste":tabla})
