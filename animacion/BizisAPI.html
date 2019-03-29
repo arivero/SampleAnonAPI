@@ -1,0 +1,626 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8">
+
+    <style>
+      body {
+        background-color: black;
+      }
+
+      #graph-container {
+        top: 0;
+        bottom: 0;
+        left: 0;
+        right: 0;
+        position: absolute;
+        /*cursor: none;*/
+      }
+
+      #net-label {
+        position: absolute;
+        bottom: 20px;
+        right: 20px;:q!:
+        font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+        font-size: 12px;
+        font-weight: bold;
+        color: white;
+        text-align: right;
+      }
+
+      #year-label {
+        position: absolute;
+        top: 20px;
+        right: 20px;
+        font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+        font-size: 30px;
+        /*font-size: 12px;*/
+        font-weight: bold;
+        color: white;
+        text-align: right;
+      }
+
+      #frame-label {
+        position: absolute;
+        top: 20px;
+        left: 20px;
+        font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+        font-size: 16px;
+        /*font-size: 12px;*/
+        font-weight: bold;
+        color: white;
+        text-align: left;
+      }
+    </style>
+  </head>
+ <body>
+    <div id="graph-container"></div>
+    <span id="net-label"></span>
+    <span id="year-label"></span>
+    <span id="frame-label"></span>
+<script src="sigma.js"></script>
+<script src="moment-with-locales.js"></script>
+<script>
+//utilidades de color
+      function hexToRgb4(hex) {
+        var result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})|([a-f\d]{1})([a-f\d]{1})([a-f\d]{1})([a-f\d]{1})$/i.exec(hex);
+        return result ? {
+          r: parseInt(hex.length <= 4 ? result[4]+result[4] : result[1], 16),
+          g: parseInt(hex.length <= 4 ? result[5]+result[5] : result[2], 16),
+          b: parseInt(hex.length <= 4 ? result[6]+result[6] : result[3], 16),
+          a: parseFloat(parseInt(hex.length <= 4 ? result[7]+result[7] : result[4], 16) / 255.0),
+          toString: function() {
+            var arr = [];
+            arr.push(this.r);
+            arr.push(this.g);
+            arr.push(this.b);
+            arr.push(this.a);
+            return "rgba(" + arr.join(",") + ")";
+          }
+        } : null;
+      }
+
+      function rgbaChangeAlpha(rgba, alpha) {
+        return rgba.replace(/,\d+(\.\d+)?\)/, ',' + alpha + ')');
+      }
+
+      function getRgbaAlpha(rgba) {
+        return parseFloat(rgba.substring(rgba.lastIndexOf(',')+1, rgba.lastIndexOf(')')));
+      }
+
+</script>
+<script>
+      var g = {nodes: [], edges: []}
+      var data = {}
+      var l2id ={}
+      //var defaultAnimColor= null; and then if null set to //s.graph.edges(0).realColor; 
+      var defaultAnimColor="rgba(0,255,255,0.19607843137254902)";
+      var defaultAnimColor="rgba(255,255,0,0.50)";
+
+
+
+      data.net="bizi";
+      data.min_year=0;
+      cargagrafo=fetch("grafo.js",{
+              cors:"true",
+              credentials: 'include', //same-origin, omit
+	      });
+      grafo2date = async () => {
+		response = await cargagrafo;
+		json = await response.json();
+		data.graph = json;
+		pintadatos();
+                loopAnimacion(0);
+		}
+      grafo2date();
+        // altrnativamente:
+      	//cargagrafo.then( (response) => {
+      	//			   	response.json().then ( json => {
+	//			    data.graph=json;
+	//					});
+	//			});
+
+
+     function pintadatos() {
+       var hideInAnimation = false;
+       if (data.graph.edges.length > 10000) {
+        var hideAlpha = 0.05;
+      } else {
+        var hideAlpha = 0.1;
+      }
+
+      for (var i=0; i<data.graph.nodes.length; i++) {
+        var color = hexToRgb4(data.graph.nodes[i].c).toString();
+        g.nodes.push({
+          id: data.graph.nodes[i].id.toString(),
+          db_id: data.graph.nodes[i].db_id,
+          label: '',
+          x: data.graph.nodes[i].x,
+          y: data.graph.nodes[i].y,
+          size: data.graph.nodes[i].s,
+          color: (hideInAnimation) ? "rgba(0,0,0,0)" : rgbaChangeAlpha(color, hideAlpha),
+          realColor: color,
+          realLabel: data.graph.nodes[i].l,
+        });
+        l2id[data.graph.nodes[i].l]=data.graph.nodes[i].id.toString();
+      }
+
+      for (var i=0; i<data.graph.edges.length; i++) {
+        var color = hexToRgb4(data.graph.edges[i].c).toString();
+        //var alpha = getRgbaAlpha(color);
+        g.edges.push({
+          id: data.graph.edges[i].id.toString(),
+          source: data.graph.edges[i].s,
+          target: data.graph.edges[i].t,
+          size: data.graph.edges[i].w,
+          color: (hideInAnimation) ? "rgba(0,0,0,0)" : rgbaChangeAlpha(color, hideAlpha),
+          realColor: color,
+          //spinColor: rgbaChangeAlpha(color, (alpha < 0.3) ? alpha + 0.1 : alpha),
+          weight: data.graph.edges[i].w,
+          type: 'line', //curve',
+        });
+      }
+       s.graph.read(g);
+       s.refresh();       
+       redrawCanvas(); 
+     } //end pintadatos
+
+
+     var settings = {
+        batchEdgesDrawing: true,
+        hideEdgesOnMove: true,
+        defaultNodeColor: "#ec5148",
+        defaultLabelColor: '#fff',
+        enableHovering: false,
+        labelThreshold: 6.0,
+        labelSize: "proportional",
+        zoomMax: 1.2,
+        zoomMin: 1/32,
+        sideMargin: 100,
+        immutable: false,
+	defaultEdgeType: "line",
+      }
+
+      var s = new sigma({
+        graph: g,
+        renderer: {
+          container: document.getElementById('graph-container'),
+          type: 'canvas'
+        },
+        settings: settings
+      });
+
+
+    function cloneCanvas(canvasDst, canvasOrg) {
+        canvasDst.setAttribute("style", canvasOrg.getAttribute("style"));
+        canvasDst.setAttribute("width", canvasOrg.getAttribute("width"));
+        canvasDst.setAttribute("height", canvasOrg.getAttribute("height"));
+      }
+
+    function clearCanvas(ctx) {
+        ctx.save();
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
+        ctx.clearRect(0, 0, canvasRef.width, canvasRef.height);
+        ctx.restore();
+      }
+
+   //globales de la operacion de dibujo
+
+      var container = document.getElementById('graph-container');
+      var canvasRef = container.firstChild;
+
+      var canvasMap = document.createElement("canvas");
+      var canvasNodes = document.createElement("canvas");
+      var canvasEdges = document.createElement("canvas");
+      var canvasMov = document.createElement("canvas");
+    
+      canvasNodes.setAttribute("class", "sigma-animation-nodes");
+      canvasEdges.setAttribute("class", "sigma-animation-edges");
+      canvasMov.setAttribute("class", "sigma-animation-mov");
+      cloneCanvas(canvasMap, canvasRef);
+      cloneCanvas(canvasNodes, canvasRef);
+      cloneCanvas(canvasEdges, canvasRef);
+      cloneCanvas(canvasMov, canvasRef);
+
+      var mouseLayer = container.getElementsByClassName('sigma-mouse')[0];
+      container.insertBefore(canvasEdges, mouseLayer);
+      container.insertBefore(canvasMov, mouseLayer);
+      container.insertBefore(canvasNodes, mouseLayer);
+
+ 
+   var ebro=[[-0.9003160014,41.6837667213],
+	[-0.9034917369,41.6762344548],
+	[-0.9222886576,41.6702240354],
+	[-0.9180829539,41.6636199410],
+	[-0.9014747157,41.6674670687],
+	[-0.8903596415,41.6614558306],
+	[-0.8624217524,41.6529429577],
+	[-0.8539245143,41.6509227887],
+	[-0.8431098475,41.6488544549]];
+	
+
+
+
+   function proj(p) {
+        //centro=longlat['89'] [-0.8858529095124769, 41.65827273141642]
+        var px = p[0]+0.8858529095124769;
+        var py = -(p[1]-41.65827273141642);
+        //pos[x]=((longlat[x][0]-centro[0])*0.747*kilometro,-(longlat[x][1]-centro[1])*kilometro)
+        //pos = 200*pos
+        px = px * 0.747 * 10000 / 90 
+	px = px * 200 ;
+        py = py * 10000/90  * 200 ; 
+        return [px,py];
+    }
+
+   function drawMap(ctx){
+        //var ctx = canvasMap.getContext('2d');
+        //clearCanvas(ctx);
+        n0=s.renderers[0].nodesOnScreen[0];
+        n1=s.renderers[0].nodesOnScreen[1];
+        kx=(n1['renderer1:x']-n0['renderer1:x'])/(n1.x-n0.x);
+        dx=n0['renderer1:x']-n0.x*kx;
+        ky=(n1['renderer1:y']-n0['renderer1:y'])/(n1.y-n0.y);
+        dy=n0['renderer1:y']-n0.y*ky;
+
+        ctx.beginPath();
+        ox=0;oy=0;
+        for (var i=0; i < ebro.length; i ++ ){
+          p=proj(ebro[i]);
+          qx= kx * p[0] +dx;
+          qy= ky * p[1] +dy;
+          mx = (qx + ox)/2;
+          my = (qy + oy)/2;
+          if (i == 0) {
+            ctx.moveTo(qx, qy);
+          } else if (i==1) {
+            ctx.moveTo(mx,my);
+          } else {
+            ctx.quadraticCurveTo(ox,oy,mx,my);
+            //ctx.lineTo(qx, qy);
+          } 
+          ox=qx;oy=qy;
+        } 
+        ctx.lineWidth = 8;
+        ctx.strokeStyle = "cadetblue"; //rgb(95,158,160)
+        ctx.stroke()
+    }
+
+
+   function drawEdges(movement) {
+        var ctx = canvasEdges.getContext('2d');
+        clearCanvas(ctx);
+        drawMap(ctx);
+        var edges = s.renderers[0].edgesOnScreen;
+        //var edges = edgesOnScreen;
+        for (var i=0; i<edges.length; i++) {
+          var source = s.graph.nodes(edges[i].source);
+          var target = s.graph.nodes(edges[i].target);
+          var color = edges[i].realColor;
+          var size = edges[i]['renderer1:size'];
+
+          var x0 = source['renderer1:x'];
+          var y0 = source['renderer1:y'];
+          var x1 = target['renderer1:x'];
+          var y1 = target['renderer1:y'];
+          var ctrl = (source.id == target.id) ?
+            sigma.utils.getSelfLoopControlPoints(x0, y0, source['renderer1:size']) :
+            sigma.utils.getQuadraticControlPoint(x0, y0, x1, y1);
+
+          ctx.beginPath();
+          ctx.moveTo(x0, y0);
+          if (source.id == target.id) {
+            ctx.bezierCurveTo(ctrl.x1, ctrl.y1, ctrl.x2, ctrl.y2, x1, y1);
+          } else {
+	    ctx.lineTo(x1, y1);
+            //ctx.quadraticCurveTo(ctrl.x, ctrl.y, x1, y1);
+          }
+          ctx.lineWidth = size;
+          ctx.strokeStyle = color;
+          ctx.stroke();
+        }
+      }
+
+   function drawNodes() {
+        /* Draw nodes and labels */
+        var ctx = canvasNodes.getContext('2d');
+        clearCanvas(ctx);
+
+        var nodes = s.renderers[0].nodesOnScreen;
+        //var nodes = nodesOnScreen;
+        for (var i=0; i<nodes.length; i++) {
+          var x = nodes[i]['renderer1:x'];
+          var y = nodes[i]['renderer1:y'];
+          var r = nodes[i]['renderer1:size'];
+          var label = nodes[i].realLabel;
+          var color = nodes[i].realColor;
+
+          ctx.beginPath();
+          ctx.arc(x, y, 1.5*r , 0, 2 * Math.PI, false);
+          ctx.lineWidth = 1.1*r;
+          var grd = ctx.createRadialGradient(x, y, 0.9*r, x, y, 2*r);
+          grd.addColorStop(0, color);
+          grd.addColorStop(1, "transparent");
+          ctx.strokeStyle = grd;
+          ctx.stroke();
+
+          ctx.beginPath();
+          ctx.arc(x, y, r , 0, 2 * Math.PI, false);
+          var grd = ctx.createRadialGradient(x-r/2, y-r/2, 0.1*r, x, y, r);
+          ctx.fillStyle = color;  // solid first. avoid transparency
+          ctx.fill();
+          grd.addColorStop(0, "rgba(255,255,255,0.8)");
+          grd.addColorStop(1, color);
+          ctx.fillStyle = grd;
+          ctx.fill();
+
+          // Label
+          if (r < settings.labelThreshold)
+            continue;
+
+          if (!label || typeof label !== 'string')
+            continue;
+
+          ctx.font = r + 'px ' + 'arial';
+          ctx.fillStyle = '#fff';
+
+          ctx.fillText(label, Math.round(x + r + 3), Math.round(y + r / 3));
+        }
+      }
+
+
+///
+/// Redibujados
+///
+
+   var timer = null;
+   var animationActive = false;
+   var delay=100;
+
+    function redrawCanvas(e) {
+        clearTimeout(timer);
+        var ctxMov = canvasMov.getContext('2d');
+        clearCanvas(ctxMov);
+        //getElementsOnScreen();
+        drawNodes()
+        drawEdges();
+        if (animationActive)
+          timer = setTimeout(runPeriod, delay);
+      }
+
+      function resizeCanvas() {
+        cloneCanvas(canvasNodes, canvasRef);
+        cloneCanvas(canvasEdges, canvasRef);
+        cloneCanvas(canvasMov, canvasRef);
+        redrawCanvas();
+      }
+
+
+window.addEventListener("resize", resizeCanvas);
+s.camera.bind('coordinatesUpdated', redrawCanvas);
+
+   
+//////
+////// ANIMACION PROPIAMENTE DICHA (aunque Canvas usa algn parametro)
+//////
+
+var animationMaxFrames = 11;
+yearFrame = 0;
+yearMaxFrames=50;//yearMaxFrames = Math.ceil(edges.length / 20) * animationMaxFrames;
+yearEdges=[];
+var activeTargets = {};
+
+
+ function preparePeriod(eventsfromjson) {
+        document.getElementById('year-label').textContent = eventsfromjson.query;
+        events=eventsfromjson.answer;
+        activeTargets = {};
+        var edges = [];
+    
+        //if (events === undefined || events.length == 0) {}
+        
+        events.forEach( e =>{
+                  edges.push({source: l2id[e[0]], target:l2id[e[1]]});
+           })
+		
+	//for (var i=0; i < 500; i++) {
+        //   var totalnodes= data.graph.nodes.length;
+	//   var randomsource=Math.floor(Math.random() * totalnodes);
+        //   var randomtarget=Math.floor(Math.random() * totalnodes);
+        //   if (randomsource != randomtarget) {
+        //          edges.push({source: randomsource, target:randomtarget});
+        //   }
+	//}
+
+        for (var i=0; i<edges.length; i++) {
+          activeTargets[edges[i].target] = 0;
+          edges[i].animationStep = 0;
+          edges[i].animationStart = Math.ceil((yearMaxFrames -1 /* -animationMaxFrames */) * Math.random());
+        }
+        for (var i=0; i<yearEdges.length; i++) {
+          if (yearEdges[i].animationStep < animationMaxFrames-1) {
+            edges.push(yearEdges[i]);
+            activeTargets[yearEdges[i].target] = 1 ; // tendria que ser +1 si Step >= 8
+          }  
+        }
+
+        yearEdges = edges;
+        //console.log(animationMaxFrames,edges);
+      } //prepareYear
+
+
+      function drawAnimation() { 
+        var ctx = canvasMov.getContext('2d');
+        //if (yearFrame == 1) {
+        clearCanvas(ctx);
+        //}
+        var edges = yearEdges;
+        var finished = 0;
+        for (var i=0; i<edges.length; i++) {
+          var edgeStep = edges[i].animationStep;
+          var target = undefined;
+
+          // Incr the acum target
+          if (edgeStep == 8) {
+            activeTargets[edges[i].target] += 1;
+          }
+
+          if (edgeStep >= 8 ) {
+            var target = s.graph.nodes(edges[i].target);
+            var x1 = target['renderer1:x'];
+            var y1 = target['renderer1:y'];
+            var r = target['renderer1:size'];
+            var acum = activeTargets[edges[i].target];
+
+            if (edgeStep == 8) { 
+              var lineWidth = (1+Math.log(3*acum))*r; 
+              var extR = (1+Math.log(1.05*acum))*r;
+            } else { 
+              var lineWidth = (1+Math.log(4*acum))*r; 
+              var extR = (1+Math.log(1.1*acum))*r;
+            }
+            ctx.beginPath();
+            ctx.arc(x1, y1, 1.5*r , 0, 2 * Math.PI, false);
+            ctx.lineWidth = lineWidth;
+            var grd = ctx.createRadialGradient(x1, y1, 0.9*r, x1, y1, extR);
+            grd.addColorStop(0, rgbaChangeAlpha(target.realColor, 0.8));
+            grd.addColorStop(1, "transparent");
+            ctx.strokeStyle = grd;
+            ctx.stroke();
+          }
+          // If the edge is moving or if the edge should start moving in this frame
+          if ( (edgeStep > 0 && edgeStep < animationMaxFrames-1) || (edgeStep == 0 && edges[i].animationStart == yearFrame) ) {
+            // Move the visible edges
+              var source = s.graph.nodes(edges[i].source);
+              var x0 = source['renderer1:x'];
+              var y0 = source['renderer1:y'];
+              if (target === undefined) {
+                var target = s.graph.nodes(edges[i].target);
+                var x1 = target['renderer1:x'];
+                var y1 = target['renderer1:y'];
+              
+              var color = defaultAnimColor;
+                  //s.graph.edges(0).realColor; //"rgba(0,255,255,0.19607843137254902)"
+              var ctrl = (source.id == target.id) ?
+                sigma.utils.getSelfLoopControlPoints(x0, y0, source['renderer1:size']) :
+                sigma.utils.getQuadraticControlPoint(x0, y0, x1, y1);
+
+              // Edge gradient
+              ctx.beginPath();
+              ctx.moveTo(x0, y0);
+              if (source.id == target.id) {
+                ctx.bezierCurveTo(ctrl.x1, ctrl.y1, ctrl.x2, ctrl.y2, x1, y1);
+              } else {
+		ctx.lineTo( x1, y1);
+                //ctx.quadraticCurveTo(ctrl.x, ctrl.y, x1, y1);
+              }
+              ctx.lineWidth = 5; // original was 7;
+              var gradient = ctx.createLinearGradient(x0, y0, x1, y1);
+              var fractStep = (edgeStep+1) / (animationMaxFrames-1);
+              gradient.addColorStop(0, "transparent");
+              gradient.addColorStop(Math.max(0, fractStep-0.5), "transparent");
+              gradient.addColorStop(fractStep, color);
+              gradient.addColorStop(Math.min(1, fractStep+0.2), "transparent");
+              gradient.addColorStop(1, "transparent");
+              ctx.strokeStyle = gradient;
+              ctx.stroke();
+            }
+
+            edges[i].animationStep += 1;
+            if (edges[i].animationStep == animationMaxFrames-1) {
+              finished += 1;
+            }
+          }
+        }
+        if (finished == yearEdges.length) {
+          yearFrame = yearMaxFrames;
+        } 
+      }
+
+var resolvePeriod = () => {};
+
+
+function runPeriod () {
+   yearFrame += 1;
+   if (yearFrame < yearMaxFrames){
+      //drawAnimation();
+      inicio=new Date().getTime();
+      timer=setTimeout(runPeriod,delay);
+      drawAnimation(); //ojo a condicion de carrera aqui !!! 
+      final = new Date().getTime();
+      if (final - inicio > delay/3) {
+        console.log("iteracion de", final - inicio," milliseconds", yearFrame);
+      }
+   } else {
+      yearFrame=0;
+      animationActive= false;
+      resolvePeriod("hecho");
+   }
+}
+
+
+periodoTerminado=Promise.resolve(0);
+
+async function loopAnimacion(periodo) {
+     response = fetch(preparaURL(periodo),{  
+			      cors:"true",
+        		      credentials: 'include', 
+			      }).then( (r) => { return r.json() } );
+     ambas = await Promise.all([response,periodoTerminado]);
+     jsn = ambas[0];
+     if (jsn.count > 0) {
+     preparePeriod(jsn);
+     periodoTerminado=new Promise( (resolve,reject) => {
+            resolvePeriod = resolve;
+            animationActive = true;
+            runPeriod();
+          });
+     } else {
+       document.getElementById('year-label').textContent="...";
+       var ctx = canvasMov.getContext('2d');
+       yearEdges=[];
+       clearCanvas(ctx);
+       periodoTerminado=new Promise( (r,f) => {
+          setTimeout(r,100,"fromWait")
+       });
+     }
+     var siguientePeriodo=periodo+1;
+	if (siguientePeriodo <  24*3*365*3) {
+	  loopAnimacion(siguientePeriodo);
+          //setTimeout(loopAnimacion,0,siguientePeriodo); es mejor para el stack o no?
+         } else {
+         window.location.reload();
+         
+       }
+}
+
+
+//delay es 0.1 segundos
+//un periodo por defecto son 5 segundos
+//un traslado es 1 segundo.
+//con muestras de 20 minutos, 
+//si queremos ajustar 18 horas = 3 minutos = 180 segundos
+//un traslado con animationMaxFrames=11 seria en tiempo real 6 minutos.
+//y un periodo deberia durar 3.33 segundos
+yearMaxFrames=34;
+
+
+function preparaURL(periodo) { //API CALL GET
+        base=moment([2014,1,15]);
+        base.add(periodo*20,'minutes');
+        //console.log(base.unix(),base.toISOString(),base.format("YYYYMMDDhhmm"));
+        return "http://193.146.116.108/apidemo/sample.js?table=bizi&sample=0.99&from="+base.format("YYYYMMDDHHmm")+"&interval=20"
+} 
+
+
+document.getElementById('net-label').textContent = "table=bizi";
+
+
+
+</script>
+</body>
+</html>
+	      
+
+
+
