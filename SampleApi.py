@@ -655,10 +655,9 @@ class Agrega:
                 #print(agregacion)
                 line=row.line
                 linekey=()
-                for x in exclude:
-                  if x in line:
-                    del line[x]
                 for x in baseTable.blurDict:
+                    if x in exclude:
+                      continue
                     if x in line:
                         if baseTable.blurDict[x]=="geo":
                             coordBase=int(float(line[x])*60*60) 
