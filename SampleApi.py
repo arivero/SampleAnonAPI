@@ -9,6 +9,7 @@ import csv
 import io
 from collections import defaultdict
 from hashlib import sha512
+from array import array
 import secrets
 import crypt
 #import dateparser #or see https://opensource.com/article/18/4/python-datetime-libraries
@@ -322,7 +323,7 @@ class Table:
               if len(tiempos)==2:
                  tiempos.append(2*tiempos[1])     
               info["geoDeltas"]=tiempos 
-            info["nlineas"]=t.lines.count() 
+            info["nlineas"]=t.lines.count() #esto igual habria que ponerlo en subproceso
             t.info=info            
             t.save()
             UploadLog(hoja=t,nlines=-1,connectionInfo={'user':usuario},options={"comando":"activar tabla"}).save()
@@ -564,20 +565,21 @@ class Sample:
                 for x in baseTable.blurDict:
                     if x in line:
                         if baseTable.blurDict[x]=="geo":
-                            #TO DO: redondear a 20 segundos (cuadricula minera)
-                            pass
+                            coordBase=int(float(line[x])*60*60) 
+                            coordBase-= coordBase % baseTable.info["geoDeltas"][0]
+                            line[x]=coordBase / 3600
                         elif baseTable.blurDict[x]=="tiempo":
                             try:
                                 fecha=parse(line[x])
                             except:
                                 fecha=parse("1975-01-01 00:00:00.000")
-                            minutos=fecha.minute
-                            fecha=fecha-datetime.timedelta(minutes=minutos% 12 )#baseTable.info["rTiempo"]["sample"])  #REDONDEO A MULTIPLO
-                            fecha=fecha.replace(second=0,microsecond=0)
-                            line[x]=fecha.isoformat()
+                            fechaBase=fecha.timestamp()
+                            fechaBase-= fechaBase % (baseTable.info["timeDeltas"][0]) 
+                            line[x]=datetime.datetime.fromtimestamp(fechaBase).isoformat()
+
 
                 response.append(line)
-            resp.body=json.dumps({"data":response,"numlines":len(response)})
+            resp.body=json.dumps({"data":response,"numlines":len(response)},indent=2)
         else:
             resp.body=json.dumps({"warning":"la tabla existe pero no esta activa"})
 sample_resource=Sample()
@@ -635,6 +637,12 @@ class Agrega:
         baseTable=Sheet.get(Sheet.name==tabla)
         if baseTable.estado=="activa":
             base=baseTable.lines
+            factor= float(req.params.get('factor','1.0'))
+            if factor < 1.0:
+              factor=1.0
+            exclude= req.params.get('exclude','')
+            if type(exclude)=='str':
+              exclude=exclude.split(',')
             if req.params.get('from','') > '':
                 iniciorango=parse(req.params.get('from',''))
                 base=base.where(Lines.fechaBase > iniciorango)
@@ -642,25 +650,30 @@ class Agrega:
                     finalrango=iniciorango+datetime.timedelta(minutes=int(req.params.get('interval')))
                     base=base.where(Lines.fechaBase<finalrango)
             #base=base.where(fn.Random()<sampleFactor)#.limit(3600)
-            agregacion=defaultdict(lambda: defaultdict(list))
+            agregacion=defaultdict(lambda: defaultdict(lambda:array('f')))
             for row in base:
+                #print(agregacion)
                 line=row.line
                 linekey=()
+                for x in exclude:
+                  if x in line:
+                    del line[x]
                 for x in baseTable.blurDict:
                     if x in line:
                         if baseTable.blurDict[x]=="geo":
-                            #TO DO: redondear a 20 segundos (cuadricula minera)
-                            pass
+                            coordBase=int(float(line[x])*60*60) 
+                            coordBase-= coordBase % int(baseTable.info["geoDeltas"][1] * factor)
+                            line[x]=coordBase / 3600
+                            linekey+=(str(line[x]),)
                         elif baseTable.blurDict[x]=="tiempo":
                             try:
                                 fecha=parse(line[x])
                             except:
                                 fecha=parse("1975-01-01 00:00:00.000")
-                            minutos=fecha.minute
-                            fechaBase=fecha#-datetime.timedelta(minutes=minutos) #baseTable.info["rTiempo"]["agrega"])  #REDONDEO A MULTIPLO
-                            fechaBase=fechaBase.replace(day=1,hour=0,minute=0,second=0,microsecond=0)
-                            line[x]=fecha.timestamp()-fechaBase.timestamp() 
-                            linekey+= (fechaBase.isoformat(),)
+                            fechaBase=fecha.timestamp()
+                            fechaBase-= fechaBase % int(baseTable.info["timeDeltas"][1]*factor) 
+                            line[x]= fechaBase 
+                            linekey+= (datetime.datetime.fromtimestamp(fechaBase).isoformat(),)
                 linekey=",".join(linekey)
                 for k , v in line.items():
                   try:
@@ -681,7 +694,7 @@ class Agrega:
                   }
                 response[index][col]=res
             #print (response)
-            resp.body=json.dumps({"clavesAgregacion":baseTable.blurDict,"data":response})
+            resp.body=json.dumps({"clavesAgregacion":baseTable.blurDict,"data":response},indent=2)
         else:
             resp.body=json.dumps({"warning":"la tabla existe pero no esta activa"})
     pass
@@ -742,19 +755,22 @@ class Decala:
 
             base=base.limit(3600)
             response=[]
+            import random #HABRIA QUE USAR HASH PARA REPRODUCIR CADA COORDENADA
             for row in base:
                 line=row.line
                 for x in baseTable.blurDict:
                     if x in line:
                         if baseTable.blurDict[x]=="geo":
-                            #TO DO: redondear a 20 segundos (cuadricula minera)
-                            pass
+                            coordBase=int(float(line[x])*60*60) 
+                            coordBase+= random.randrange(baseTable.info["geoDeltas"][2])
+                            line[x]=coordBase / 3600
                         elif baseTable.blurDict[x]=="tiempo":
                             try:
                                 fecha=parse(line[x])
                             except:
                                 fecha=parse("1975-01-01 00:00:00.000")
                             unixtime=fecha.timestamp()
+                            interval=baseTable.info["timeDeltas"][2]
                             fecha=datetime.datetime.fromtimestamp(move(unixtime,seed,interval))
                             line[x]=fecha.isoformat()
 
@@ -783,7 +799,7 @@ class Info:
                     respuesta.append({"tabla":row.name, "descr":row.info["descripcion"],
                          "campos":row.fields, "timeDeltas": row.info["timeDeltas"],
                         "redondeos":row.blurDict, "pseudonimizados":[x for x in row.idsKeys]})
-        resp.body=json.dumps(respuesta)
+        resp.body=json.dumps(respuesta,indent=2)
 manage_resource=Info()
 app.add_route("/api/info/",manage_resource)
 spec.path(resource=manage_resource)
