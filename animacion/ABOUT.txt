@@ -1,0 +1,7 @@
+Este ejemplo fue hecho sobre una version inicial de la API
+por KAMPAL sl, para dar una muestra de sus posibles usos
+(se realizo tambien un segundo ejemplo de analisis desde un 
+notebook de jupyter, consultando la api y procesando las
+respuestas con una herramienta de analisis de grafos, en
+ese caso lo que se estudio fue la relacion entre lineas de
+transporte publico)
