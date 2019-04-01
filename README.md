@@ -1,9 +1,9 @@
 ## Anon API
 
 Este es un prototipo de una API para gestion de datos anonimizados, orientado a datos con
-localizacion cronologica o geografica
+localizacion cronologica o geografica. A fecha de Abril de 2019, hay una demo corriendo en https://193.146.116.108/browser 
 
-Basicamente consiste de una parte administrativa que admite la subida y descarga de tablas CSV, y una parte publica
+La API consiste basicamente de una parte administrativa que admite la subida y descarga de tablas CSV, y una parte publica
 donde los datos se suministran en json.
 
 La parte publica de la API considera tres tipos de llamadas:
@@ -27,6 +27,13 @@ su hash, mientras que el resto de los datos se guardan con la precision original
 - DELETE permite eliminar la tabla
 
 - PATCH activa la tabla para que sea visible al publico, y permite alterar algunos metadatos: descripcion de la tabla, y redondeos a aplicar en cada fase
+
+Ademas, existen tres comandos para obtener informacion general. Un administrador puede usar `list` para consultar todas las tablas incorporadas al sistema y `log` para obtener informacion de la actividad. 
+Un usuario cualquiera puede obter informacion de las tablas activas usando `info`, por ejemplo desde la linea de comandos:
+
+```
+curl -k -X GET "https://193.146.116.108/api/info/" -H "accept: */*"
+```
 
 ### Instalacion
 
