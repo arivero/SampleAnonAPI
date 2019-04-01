@@ -76,7 +76,7 @@ El sistema espera un CSV separado con punto y coma, e incluyendo las cabeceras, 
  
  Una vez activa la tabla, queda a disposicion de los usuarios.
  
- Desde el punto de vista del usuario lo primero deberia ser comprobar que tablas existen mediante una llamada a `/api/info/` y despues posiblemente realizar una llamada a sample, quizas primero con un tanto por uno bastante bajo. Algunas tablas pueden tener demasiadas filas y si la demo no usa SSD (como es el caso de la nuestra) la respuesta puede ser lenta.
+ Desde el punto de vista del usuario lo primero deberia ser comprobar que tablas existen mediante una llamada a `/api/info/`, en nuestra demo https://193.146.116.108/api/info/,  y despues intentar una llamada a sample, quizas primero con un tanto por uno bastante bajo. Algunas tablas pueden tener demasiadas filas y si la demo no usa SSD (como es el caso de la nuestra) la respuesta puede ser lenta.
  
  Las llamadas permiten un filtrado por ventana temporal, con una especificacion que encontramos conveniente tiempo atras para animaciones:
  - *from* es un parametro que indica la fecha desde la que queremos obtener datos. Su formato es bastante flexible, admitiendo diversas variantes del estandar año-mes-dia-hora-minutos
