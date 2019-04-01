@@ -651,10 +651,13 @@ class Agrega:
                     base=base.where(Lines.fechaBase<finalrango)
             #agregacion=defaultdict(lambda: defaultdict(lambda:array('f')))
             import numpy
-            agregacion=defaultdict(lambda: defaultdict(lambda:  numpy.empty(1,dtype=numpy.float32)))
-            lineitems=set()
+            import scipy
+            import scipy.stats
+            totalAgregacion=defaultdict(int)
+            agregacion=defaultdict(lambda: defaultdict(lambda:  numpy.empty(0,dtype=numpy.float32)))
+            #posiblemente seria mas eficaz hacer la agregacion en la BBDD, creando
+            #una tabla temporal con las cestas o simplemente la linekey
             for row in base:
-                #print(agregacion)
                 line=row.line
                 linekey=()
                 for x in baseTable.blurDict:
@@ -664,8 +667,8 @@ class Agrega:
                         if baseTable.blurDict[x]=="geo":
                             coordBase=int(float(line[x])*60*60) 
                             coordBase-= coordBase % int(baseTable.info["geoDeltas"][1] * factor)
-                            line[x]=coordBase / 3600
-                            linekey+=(str(line[x]),)
+                            line[x]= float(line[x]) # (int(float(line[x])*60*60)-coordBase) / 3600
+                            linekey+=(str(coordBase/3600),)
                         elif baseTable.blurDict[x]=="tiempo":
                             try:
                                 fecha=parse(line[x])
@@ -673,13 +676,12 @@ class Agrega:
                                 fecha=parse("1975-01-01 00:00:00.000")
                             fechaBase=fecha.timestamp()
                             fechaBase-= fechaBase % int(baseTable.info["timeDeltas"][1]*factor) 
-                            line[x]= fechaBase 
+                            line[x]= fecha.timestamp()  #-fechaBase 
                             linekey+= (datetime.datetime.fromtimestamp(fechaBase).isoformat(),)
                 linekey=",".join(linekey)
                 for k , v in line.items():
                   if k in exclude:
                       continue
-                  lineitems.add(k)
                   try:
                     valor=float(v)
                     #agregacion[linekey][k].append(valor)
@@ -687,19 +689,17 @@ class Agrega:
                     agregacion[linekey][k][-1]=valor
                   except ValueError:
                     pass
-                #agregacion[linekey]["__totales"].append(1)
-                agregacion[linekey]["__totales"].resize(len(agregacion[linekey]["__totales"])+1)
-                agregacion[linekey]["__totales"][-1]=1
+                totalAgregacion[linekey]+=1
             response={}
-            print(exclude,lineitems, [x in exclude for x in lineitems])
             for index,k in agregacion.items():
-              response[index]={}
+              response[index]={"total":totalAgregacion[index]}
               for col,serie in k.items():
                 res={"count": len(serie),
                     "avg": numpy.mean(serie).item() if len(serie) > 0 else -1,
                     "stdev": numpy.std(serie).item() if len(serie) > 1 else -1,
-                    #con numpy se podrian dar mas parametros, curtosis, otros momentos, etc,
-                    #incluso fits a otras distro como poisson o weibull
+                    "expon":scipy.stats.expon.fit(serie),
+                    "weibull_min":scipy.stats.weibull_min.fit(serie),
+                    "pareto":scipy.stats.pareto.fit(serie)
                   }
                 response[index][col]=res
             #print (response)
