@@ -649,8 +649,10 @@ class Agrega:
                 if req.params.get('interval','') > '':
                     finalrango=iniciorango+datetime.timedelta(minutes=int(req.params.get('interval')))
                     base=base.where(Lines.fechaBase<finalrango)
-            #base=base.where(fn.Random()<sampleFactor)#.limit(3600)
-            agregacion=defaultdict(lambda: defaultdict(lambda:array('f')))
+            #agregacion=defaultdict(lambda: defaultdict(lambda:array('f')))
+            import numpy
+            agregacion=defaultdict(lambda: defaultdict(lambda:  numpy.empty(1,dtype=numpy.float32)))
+            lineitems=set()
             for row in base:
                 #print(agregacion)
                 line=row.line
@@ -675,19 +677,27 @@ class Agrega:
                             linekey+= (datetime.datetime.fromtimestamp(fechaBase).isoformat(),)
                 linekey=",".join(linekey)
                 for k , v in line.items():
+                  if k in exclude:
+                      continue
+                  lineitems.add(k)
                   try:
                     valor=float(v)
-                    agregacion[linekey][k].append(valor)
+                    #agregacion[linekey][k].append(valor)
+                    agregacion[linekey][k].resize(len(agregacion[linekey][k])+1)
+                    agregacion[linekey][k][-1]=valor
                   except ValueError:
                     pass
-                agregacion[linekey]["__totales"].append(1)
+                #agregacion[linekey]["__totales"].append(1)
+                agregacion[linekey]["__totales"].resize(len(agregacion[linekey]["__totales"])+1)
+                agregacion[linekey]["__totales"][-1]=1
             response={}
+            print(exclude,lineitems, [x in exclude for x in lineitems])
             for index,k in agregacion.items():
               response[index]={}
               for col,serie in k.items():
                 res={"count": len(serie),
-                    "avg": statistics.mean(serie) if len(serie) > 0 else -1,
-                    "stdev":statistics.stdev(serie) if len(serie) > 1 else -1,
+                    "avg": numpy.mean(serie).item() if len(serie) > 0 else -1,
+                    "stdev": numpy.std(serie).item() if len(serie) > 1 else -1,
                     #con numpy se podrian dar mas parametros, curtosis, otros momentos, etc,
                     #incluso fits a otras distro como poisson o weibull
                   }
