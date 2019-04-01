@@ -407,6 +407,10 @@ class Table:
         infoDict["timeDeltas"]=[12*60,3600,4096] 
         infoDict["geoDeltas"]=[20,20,20]
         infoDict["descripcion"]=""
+        #if familia:
+        #AltTable=Sheet.get...
+        #altInfoDict=altTable.info
+        #infoDict["baseSeed"]=altInfoDict["baseSeed"]
         infoDict["baseSeed"]=secrets.token_hex(12)
         Sheet.insert(name=tabla,estado="borrador",fields=dict(),idsKeys=idsKeyDict,blurDict=blur,info=infoDict).on_conflict(
             conflict_target=[Sheet.name],
@@ -752,6 +756,9 @@ class Decala:
         #si la seed de referencia es none entonces no se autoriza el Decalado.
         baseTable=Sheet.get(Sheet.name==tabla)
         if baseTable.estado=="activa":
+            #if seed:
+            #altTable=Sheet.get(Sheet.name==seed)
+            #seed=altTable.info["baseSeed"]
             seed=baseTable.info["baseSeed"]
             interval=baseTable.info["timeDeltas"][2]
             base=baseTable.lines
@@ -762,7 +769,7 @@ class Decala:
                     finalrango=iniciorango+datetime.timedelta(minutes=int(req.params.get('interval')))
                     base=base.where(Lines.fechaBase<finalrango)
 
-            base=base.limit(3600)
+            base=base.limit(100000)
             response=[]
             import random #HABRIA QUE USAR HASH PARA REPRODUCIR CADA COORDENADA
             for row in base:
