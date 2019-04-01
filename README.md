@@ -96,3 +96,9 @@ La llamada de agregacion tiene un parametro extra, `factor=`, que permite obtene
 
 y obtendremos cestos que pueden emplearse para ilustrar un histograma o para fits a distribuciones. El codigo de ejemplo intenta ademas hacer fits de cada cesto individual a varias distribuciones continuas, lo que contribuye a que el tiempo de respuesta pueda ser de entre uno y dos minutos incluso sin fallo de memoria.
 
+Por ultimo, la operacion de decalar permite al usuario obtener datos que aun con un ruido añadido garantizan el orden cronologico, y asi permiten estudiar trasbordos u otros usos secuenciales.
+
+```curl -k -X GET "https://193.146.116.108/decalar/BiziSimpleHist/?interval=2400&from=20140202" -H "accept: application/json"```
+
+Las llamadas a la misma tabla siempre reciben el mismo decalaje, con una semilla controlada internamente. El administrador del sistema puede hacer que una tabla nueva reciba la misma semilla que otra anterior usando una opcion del comando PATCH. Por otra parte, si la tabla lo permite, el usuario puede solicitar que sea decalada con la clave de cualquier otra tabla, indicandolo mediante el parametro _seed_
+
