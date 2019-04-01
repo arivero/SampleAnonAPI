@@ -1,4 +1,4 @@
-##Anon API
+## Anon API
 
 Este es un prototipo de una API para gestion de datos anonimizados, orientado a datos con
 localizacion cronologica o geografica
@@ -8,27 +8,27 @@ donde los datos se suministran en json.
 
 La parte publica de la API considera tres tipos de llamadas:
 
--sample, donde se recogen una muestra de una tabla. Los datos espaciales y temporales se entregan redondeados a la escala
+- sample, donde se recogen una muestra de una tabla. Los datos espaciales y temporales se entregan redondeados a la escala
 que haya especificado el administrador
 
--agrega, donde se pueden recoger informacion estadistica de los conjuntos de datos de cada zona.
+- agrega, donde se pueden recoger informacion estadistica de los conjuntos de datos de cada zona.
 
--decala, donde se pueden recoger datos temporales sin redondear pero decalados una cantidad aleatoria, pero
+- decala, donde se pueden recoger datos temporales sin redondear pero decalados una cantidad aleatoria, pero
 garantizando la cronologia.
 
 La parte privada de la API permite a un administrador gestionar las tablas, en particular
 
--POST permite enviar una tabla a la vez que se indica que columnas son datos personales, para pseudonimizar o directamente 
+- POST permite enviar una tabla a la vez que se indica que columnas son datos personales, para pseudonimizar o directamente 
 ignorar, y que columnas son datos temporales o espaciales. 
 
--GET permite recojer en CSV exactamente la tabla que ha sido guardada en el servidor. De los datos pseudonimizados solo se guarda
+- GET permite recojer en CSV exactamente la tabla que ha sido guardada en el servidor. De los datos pseudonimizados solo se guarda
 su hash, mientras que el resto de los datos se guardan con la precision original.
 
--DELETE permite eliminar la tabla
+- DELETE permite eliminar la tabla
 
--PATCH activa la tabla para que sea visible al publico, y permite alterar algunos metadatos: descripcion de la tabla, y redondeos a aplicar en cada fase
+- PATCH activa la tabla para que sea visible al publico, y permite alterar algunos metadatos: descripcion de la tabla, y redondeos a aplicar en cada fase
 
-###Instalacion
+### Instalacion
 
 Las dependencias son las que se ven en las cabeceras: peewee, falcon, etcetera. La Base de Datos que estamos usando es Postgresql,
 pero practicamente todas las llamadas son via peewee, lo que permitiria poner el modelo en otro tipo de base de datos. La estructura
